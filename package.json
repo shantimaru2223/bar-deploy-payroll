@@ -1,0 +1,20 @@
+{
+  "name": "bar-deploy-payroll",
+  "version": "1.0.0",
+  "description": "Bar Deploy 給与明細アプリ",
+  "main": "src/app.js",
+  "scripts": {
+    "start": "node src/app.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "better-sqlite3": "^12.6.2",
+    "express": "^5.2.1",
+    "html2pdf.js": "^0.14.0",
+    "pdfmake": "^0.3.4"
+  }
+}

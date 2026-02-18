@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bar Deploy - 給与明細アプリ</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Segoe UI', sans-serif; background: #1a1a2e; color: #eee; padding: 20px; }
+    h1 { text-align: center; margin-bottom: 5px; color: #e94560; font-size: 28px; }
+    .subtitle { text-align: center; color: #888; margin-bottom: 30px; font-size: 13px; }
+    .container { max-width: 900px; margin: 0 auto; }
+    h2 { font-size: 16px; color: #e94560; margin-bottom: 15px; padding-bottom: 8px; border-bottom: 1px solid #333; }
+    h3 { font-size: 14px; color: #ccc; margin: 20px 0 10px; }
+
+    /* タブ */
+    .tabs { display: flex; gap: 0; margin-bottom: 0; }
+    .tab { flex: 1; padding: 12px 20px; background: #0d1b36; border: 1px solid #333; border-bottom: none; color: #666; cursor: pointer; font-size: 14px; font-weight: bold; text-align: center; transition: all 0.2s; }
+    .tab:first-child { border-radius: 8px 0 0 0; }
+    .tab:last-child { border-radius: 0 8px 0 0; }
+    .tab.active { background: #16213e; color: #e94560; border-bottom: 2px solid #e94560; }
+    .tab:hover:not(.active) { color: #aaa; }
+
+    /* セクション */
+    .section { display: none; background: #16213e; padding: 25px; border-radius: 0 0 8px 8px; border: 1px solid #333; border-top: none; }
+    .section.active { display: block; }
+
+    /* カード */
+    .card { background: #0f3460; border-radius: 8px; padding: 20px; margin-bottom: 15px; }
+
+    /* フォーム */
+    label { display: block; margin: 10px 0 5px; color: #aaa; font-size: 12px; font-weight: bold; letter-spacing: 0.5px; }
+    input, select { width: 100%; padding: 10px 12px; border: 1px solid #2a3a5c; border-radius: 6px; background: #0d1b36; color: #eee; font-size: 14px; transition: border 0.2s; }
+    input:focus, select:focus { outline: none; border-color: #e94560; }
+    button { padding: 10px 24px; background: #e94560; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: bold; transition: all 0.2s; }
+    button:hover { background: #c73750; transform: translateY(-1px); }
+    .btn-small { padding: 4px 10px; font-size: 11px; }
+    .btn-danger { background: #444; }
+    .btn-danger:hover { background: #e94560; }
+    .btn-secondary { background: #2a3a5c; }
+    .btn-secondary:hover { background: #3a4a6c; }
+
+    /* 横並びフォーム */
+    .form-row { display: flex; gap: 10px; }
+    .form-row > div { flex: 1; }
+
+    /* テーブル */
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    th, td { padding: 10px 12px; text-align: left; font-size: 13px; }
+    th { color: #e94560; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 2px solid #e94560; }
+    td { border-bottom: 1px solid #1a2a4a; }
+    tr:hover td { background: rgba(233, 69, 96, 0.05); }
+
+    /* 給与タイプ切替 */
+    .pay-fields { margin-top: 5px; }
+    .hidden { display: none; }
+
+    /* サマリーカード */
+    .summary { display: flex; gap: 10px; margin: 15px 0; }
+    .summary-item { flex: 1; background: #0d1b36; border-radius: 8px; padding: 15px; text-align: center; }
+    .summary-item .value { font-size: 24px; font-weight: bold; color: #e94560; }
+    .summary-item .label { font-size: 11px; color: #888; margin-top: 5px; }
+
+    /* 勤怠入力 - クイック入力 */
+    .quick-input { background: #0f3460; border-radius: 8px; padding: 15px; margin-bottom: 15px; }
+    .quick-input .form-row { align-items: flex-end; }
+    .quick-input label { margin: 0 0 5px; }
+    .quick-input button { margin-top: 0; align-self: flex-end; white-space: nowrap; }
+    .att-controls { display: flex; gap: 10px; align-items: flex-end; margin-bottom: 15px; }
+    .att-controls > div { flex: 1; }
+    .att-controls > div:last-child { flex: 0; }
+
+    /* 給与明細プレビュー */
+    .payslip {
+      background: #fff;
+      color: #333;
+      padding: 0;
+      border-radius: 8px;
+      margin-top: 20px;
+      overflow: hidden;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+      font-family: 'Segoe UI', sans-serif;
+    }
+    .payslip-header {
+      background: linear-gradient(135deg, #1a1a2e, #16213e);
+      color: #fff;
+      padding: 25px 30px;
+      text-align: center;
+    }
+    .payslip-header h3 {
+      color: #fff;
+      font-size: 20px;
+      letter-spacing: 8px;
+      margin: 0 0 8px;
+    }
+    .payslip-header .shop-name {
+      font-size: 13px;
+      color: #e94560;
+      font-weight: bold;
+    }
+    .payslip-header .period {
+      font-size: 14px;
+      color: #aaa;
+      margin-top: 5px;
+    }
+    .payslip-body { padding: 25px 30px; }
+    .payslip-section {
+      margin-bottom: 20px;
+    }
+    .payslip-section-title {
+      font-size: 11px;
+      color: #999;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 8px;
+      padding-bottom: 5px;
+      border-bottom: 1px solid #eee;
+    }
+    .payslip-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 6px 0;
+      font-size: 14px;
+    }
+    .payslip-row .label { color: #666; font-weight: normal; margin: 0; }
+    .payslip-row .value { font-weight: bold; color: #333; }
+    .payslip-total {
+      background: linear-gradient(135deg, #e94560, #c73750);
+      color: #fff;
+      padding: 20px 30px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 18px;
+    }
+    .payslip-total .amount { font-size: 28px; font-weight: bold; }
+
+    /* メッセージ */
+    .empty-msg { text-align: center; color: #555; padding: 30px; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Bar Deploy</h1>
+    <p class="subtitle">給与明細管理システム</p>
+
+    <!-- タブ -->
+    <div class="tabs">
+      <button class="tab active" onclick="showTab('staff', this)">スタッフ管理</button>
+      <button class="tab" onclick="showTab('attendance', this)">勤怠入力</button>
+      <button class="tab" onclick="showTab('payroll', this)">給与明細</button>
+    </div>
+
+    <!-- ==================== スタッフ管理 ==================== -->
+    <div id="staff" class="section active">
+      <div class="card">
+        <h2>スタッフ登録</h2>
+        <div class="form-row">
+          <div>
+            <label>名前</label>
+            <input type="text" id="staffName" placeholder="例: 山田太郎">
+          </div>
+          <div>
+            <label>給与タイプ</label>
+            <select id="payType" onchange="togglePayFields()">
+              <option value="hourly">時給</option>
+              <option value="monthly">月給</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div id="hourlyField" class="pay-fields">
+            <label>時給（円）</label>
+            <input type="number" id="hourlyRate" placeholder="例: 1200">
+          </div>
+          <div id="monthlyField" class="pay-fields hidden">
+            <label>月給（円）</label>
+            <input type="number" id="monthlySalary" placeholder="例: 200000">
+          </div>
+          <div>
+            <label>交通費（月額・円）</label>
+            <input type="number" id="transportFee" placeholder="例: 5000">
+          </div>
+        </div>
+
+        <div style="margin-top: 15px;">
+          <button onclick="addStaff()">登録する</button>
+        </div>
+      </div>
+
+      <h2>スタッフ一覧</h2>
+      <table>
+        <thead><tr><th>名前</th><th>タイプ</th><th>時給 / 月給</th><th>交通費</th><th></th></tr></thead>
+        <tbody id="staffList"></tbody>
+      </table>
+      <div id="staffEmpty" class="empty-msg hidden">スタッフが登録されていません</div>
+    </div>
+
+    <!-- ==================== 勤怠入力 ==================== -->
+    <div id="attendance" class="section">
+      <h2>勤怠入力</h2>
+
+      <!-- スタッフ・月の選択 -->
+      <div class="att-controls">
+        <div>
+          <label>スタッフ</label>
+          <select id="attStaff" onchange="loadAttendance()"></select>
+        </div>
+        <div>
+          <label>対象月</label>
+          <input type="month" id="attMonth" onchange="loadAttendance()">
+        </div>
+      </div>
+
+      <!-- クイック入力フォーム -->
+      <div class="quick-input">
+        <h3>シフトを追加</h3>
+        <div class="form-row" style="align-items: flex-end;">
+          <div>
+            <label>勤務日</label>
+            <input type="date" id="workDate">
+          </div>
+          <div>
+            <label>開始</label>
+            <input type="time" id="startTime">
+          </div>
+          <div>
+            <label>終了</label>
+            <input type="time" id="endTime">
+          </div>
+          <div>
+            <button onclick="addAttendance()" style="margin-top: 0;">追加</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- サマリー -->
+      <div class="summary" id="attSummary" style="display:none;">
+        <div class="summary-item">
+          <div class="value" id="sumDays">0</div>
+          <div class="label">出勤日数</div>
+        </div>
+        <div class="summary-item">
+          <div class="value" id="sumHours">0:00</div>
+          <div class="label">総勤務時間</div>
+        </div>
+        <div class="summary-item">
+          <div class="value" id="sumEstimate">-</div>
+          <div class="label">見込み給与</div>
+        </div>
+      </div>
+
+      <!-- 勤怠一覧 -->
+      <table id="attTable">
+        <thead><tr><th>日付</th><th>曜日</th><th>開始</th><th>終了</th><th>勤務時間</th><th></th></tr></thead>
+        <tbody id="attendanceList"></tbody>
+      </table>
+      <div id="attEmpty" class="empty-msg">対象月を選択してください</div>
+    </div>
+
+    <!-- ==================== 給与明細 ==================== -->
+    <div id="payroll" class="section">
+      <h2>給与明細</h2>
+
+      <div class="form-row" style="align-items: flex-end;">
+        <div>
+          <label>スタッフ</label>
+          <select id="payStaff"></select>
+        </div>
+        <div>
+          <label>対象月</label>
+          <input type="month" id="payMonth">
+        </div>
+        <div>
+          <button onclick="calcPayroll()" style="margin-top:0;">明細を表示</button>
+        </div>
+        <div>
+          <button onclick="downloadPdf()" id="pdfBtn" class="btn-secondary hidden" style="margin-top:0;">PDF出力</button>
+        </div>
+      </div>
+
+      <div id="payslipPreview"></div>
+    </div>
+  </div>
+
+  <script>
+    // --- タブ切替 ---
+    function showTab(name, btn) {
+      document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      document.getElementById(name).classList.add('active');
+      btn.classList.add('active');
+      if (name === 'attendance' || name === 'payroll') loadStaffSelect();
+    }
+
+    // --- 給与タイプ切替 ---
+    function togglePayFields() {
+      const type = document.getElementById('payType').value;
+      document.getElementById('hourlyField').classList.toggle('hidden', type !== 'hourly');
+      document.getElementById('monthlyField').classList.toggle('hidden', type !== 'monthly');
+    }
+
+    // --- スタッフ管理 ---
+    async function loadStaff() {
+      const res = await fetch('/api/staff');
+      const staff = await res.json();
+      const tbody = document.getElementById('staffList');
+      const empty = document.getElementById('staffEmpty');
+
+      if (staff.length === 0) {
+        tbody.innerHTML = '';
+        empty.classList.remove('hidden');
+        return;
+      }
+      empty.classList.add('hidden');
+
+      tbody.innerHTML = staff.map(s => `
+        <tr>
+          <td><strong>${s.name}</strong></td>
+          <td>${s.pay_type === 'hourly' ? '時給' : '月給'}</td>
+          <td>${s.pay_type === 'hourly' ? s.hourly_rate.toLocaleString() + '円/時' : s.monthly_salary.toLocaleString() + '円/月'}</td>
+          <td>${s.transport_fee.toLocaleString()}円</td>
+          <td><button class="btn-small btn-danger" onclick="deleteStaff(${s.id})">削除</button></td>
+        </tr>
+      `).join('');
+    }
+
+    async function addStaff() {
+      const name = document.getElementById('staffName').value.trim();
+      const pay_type = document.getElementById('payType').value;
+      const hourly_rate = parseInt(document.getElementById('hourlyRate').value) || 0;
+      const monthly_salary = parseInt(document.getElementById('monthlySalary').value) || 0;
+      const transport_fee = parseInt(document.getElementById('transportFee').value) || 0;
+
+      if (!name) { alert('名前を入力してください'); return; }
+      if (pay_type === 'hourly' && hourly_rate <= 0) { alert('時給を入力してください'); return; }
+      if (pay_type === 'monthly' && monthly_salary <= 0) { alert('月給を入力してください'); return; }
+
+      await fetch('/api/staff', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, pay_type, hourly_rate, monthly_salary, transport_fee })
+      });
+
+      document.getElementById('staffName').value = '';
+      document.getElementById('hourlyRate').value = '';
+      document.getElementById('monthlySalary').value = '';
+      document.getElementById('transportFee').value = '';
+      loadStaff();
+    }
+
+    async function deleteStaff(id) {
+      if (!confirm('このスタッフを削除しますか？')) return;
+      await fetch(`/api/staff/${id}`, { method: 'DELETE' });
+      loadStaff();
+    }
+
+    // --- スタッフ選択肢 ---
+    async function loadStaffSelect() {
+      const res = await fetch('/api/staff');
+      const staff = await res.json();
+      const options = staff.map(s => `<option value="${s.id}">${s.name}</option>`).join('');
+      document.getElementById('attStaff').innerHTML = options;
+      document.getElementById('payStaff').innerHTML = options;
+    }
+
+    // --- 曜日ヘルパー ---
+    const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
+    function getWeekday(dateStr) {
+      const d = new Date(dateStr + 'T00:00:00');
+      return WEEKDAYS[d.getDay()];
+    }
+    function getWeekdayClass(dateStr) {
+      const day = new Date(dateStr + 'T00:00:00').getDay();
+      if (day === 0) return 'color: #e94560';
+      if (day === 6) return 'color: #4dabf7';
+      return '';
+    }
+
+    // --- 勤怠管理 ---
+    async function addAttendance() {
+      const staff_id = document.getElementById('attStaff').value;
+      const work_date = document.getElementById('workDate').value;
+      const start_time = document.getElementById('startTime').value;
+      const end_time = document.getElementById('endTime').value;
+
+      if (!staff_id || !work_date || !start_time || !end_time) {
+        alert('全ての項目を入力してください');
+        return;
+      }
+      if (start_time === end_time) {
+        alert('開始時間と終了時間が同じです');
+        return;
+      }
+
+      await fetch('/api/attendance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ staff_id, work_date, start_time, end_time })
+      });
+
+      // 日付だけリセット（開始・終了はそのままにして連続入力しやすく）
+      document.getElementById('workDate').value = '';
+      loadAttendance();
+    }
+
+    async function loadAttendance() {
+      const staffId = document.getElementById('attStaff').value;
+      const month = document.getElementById('attMonth').value;
+      const emptyMsg = document.getElementById('attEmpty');
+      const summary = document.getElementById('attSummary');
+
+      if (!staffId || !month) {
+        emptyMsg.textContent = '対象月を選択してください';
+        emptyMsg.classList.remove('hidden');
+        summary.style.display = 'none';
+        document.getElementById('attendanceList').innerHTML = '';
+        return;
+      }
+
+      const res = await fetch(`/api/attendance/${staffId}/${month}`);
+      const rows = await res.json();
+      const tbody = document.getElementById('attendanceList');
+
+      if (rows.length === 0) {
+        tbody.innerHTML = '';
+        emptyMsg.textContent = 'この月の勤怠データはありません。上のフォームからシフトを追加してください。';
+        emptyMsg.classList.remove('hidden');
+        summary.style.display = 'none';
+        return;
+      }
+
+      emptyMsg.classList.add('hidden');
+      summary.style.display = 'flex';
+
+      // 合計計算
+      const totalMin = rows.reduce((s, r) => s + r.work_minutes, 0);
+      const totalH = Math.floor(totalMin / 60);
+      const totalM = totalMin % 60;
+
+      document.getElementById('sumDays').textContent = rows.length;
+      document.getElementById('sumHours').textContent = `${totalH}:${String(totalM).padStart(2, '0')}`;
+
+      // 見込み給与の計算
+      const staffRes = await fetch('/api/staff');
+      const staffList = await staffRes.json();
+      const staff = staffList.find(s => s.id === parseInt(staffId));
+      if (staff) {
+        let estimate;
+        if (staff.pay_type === 'hourly') {
+          estimate = Math.floor(totalMin / 60 * staff.hourly_rate) + staff.transport_fee;
+        } else {
+          estimate = staff.monthly_salary + staff.transport_fee;
+        }
+        document.getElementById('sumEstimate').textContent = '¥' + estimate.toLocaleString();
+      }
+
+      tbody.innerHTML = rows.map(r => {
+        const h = Math.floor(r.work_minutes / 60);
+        const m = r.work_minutes % 60;
+        const wd = getWeekday(r.work_date);
+        const wdStyle = getWeekdayClass(r.work_date);
+        return `
+          <tr>
+            <td>${r.work_date}</td>
+            <td style="${wdStyle}">${wd}</td>
+            <td>${r.start_time}</td>
+            <td>${r.end_time}</td>
+            <td>${h}時間${m > 0 ? m + '分' : ''}</td>
+            <td><button class="btn-small btn-danger" onclick="deleteAttendance(${r.id})">削除</button></td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    async function deleteAttendance(id) {
+      if (!confirm('この勤怠データを削除しますか？')) return;
+      await fetch(`/api/attendance/${id}`, { method: 'DELETE' });
+      loadAttendance();
+    }
+
+    // --- 給与計算 ---
+    let currentPayroll = null;
+
+    async function calcPayroll() {
+      const staffId = document.getElementById('payStaff').value;
+      const month = document.getElementById('payMonth').value;
+      if (!staffId || !month) { alert('スタッフと対象月を選択してください'); return; }
+
+      const res = await fetch(`/api/payroll/${staffId}/${month}`);
+      currentPayroll = await res.json();
+      const p = currentPayroll;
+
+      const [year, mon] = p.yearMonth.split('-');
+      const totalH = Math.floor(p.totalMinutes / 60);
+      const totalM = p.totalMinutes % 60;
+
+      // 勤務詳細の行を構築
+      let detailRows = '';
+      if (p.staff.pay_type === 'hourly') {
+        detailRows = `
+          <div class="payslip-row">
+            <span class="label">給与タイプ</span>
+            <span class="value">時給 ${p.staff.hourly_rate.toLocaleString()}円</span>
+          </div>
+          <div class="payslip-row">
+            <span class="label">総勤務時間</span>
+            <span class="value">${totalH}時間${totalM > 0 ? totalM + '分' : ''}</span>
+          </div>
+        `;
+      } else {
+        detailRows = `
+          <div class="payslip-row">
+            <span class="label">給与タイプ</span>
+            <span class="value">月給 ${p.staff.monthly_salary.toLocaleString()}円</span>
+          </div>
+        `;
+      }
+
+      document.getElementById('payslipPreview').innerHTML = `
+        <div class="payslip">
+          <div class="payslip-header">
+            <h3>給 与 明 細 書</h3>
+            <div class="shop-name">Bar Deploy</div>
+            <div class="period">${year}年${parseInt(mon)}月分</div>
+          </div>
+          <div class="payslip-body">
+            <div class="payslip-section">
+              <div class="payslip-section-title">スタッフ情報</div>
+              <div class="payslip-row">
+                <span class="label">氏名</span>
+                <span class="value">${p.staff.name}</span>
+              </div>
+            </div>
+            <div class="payslip-section">
+              <div class="payslip-section-title">勤務情報</div>
+              ${detailRows}
+            </div>
+            <div class="payslip-section">
+              <div class="payslip-section-title">支給内訳</div>
+              <div class="payslip-row">
+                <span class="label">基本給</span>
+                <span class="value">${p.basePay.toLocaleString()}円</span>
+              </div>
+              <div class="payslip-row">
+                <span class="label">交通費</span>
+                <span class="value">${p.transportFee.toLocaleString()}円</span>
+              </div>
+              <div class="payslip-row" style="border-top: 1px solid #eee; padding-top: 8px; margin-top: 4px;">
+                <span class="label">総支給額</span>
+                <span class="value">${p.grossPay.toLocaleString()}円</span>
+              </div>
+            </div>
+            <div class="payslip-section">
+              <div class="payslip-section-title">控除</div>
+              <div class="payslip-row">
+                <span class="label">源泉徴収税額（10.21%）</span>
+                <span class="value" style="color: #e94560;">-${p.withholdingTax.toLocaleString()}円</span>
+              </div>
+            </div>
+          </div>
+          <div class="payslip-total">
+            <span>差引支給額</span>
+            <span class="amount">¥${p.netPay.toLocaleString()}</span>
+          </div>
+        </div>
+      `;
+
+      document.getElementById('pdfBtn').classList.remove('hidden');
+    }
+
+    // --- PDF出力 ---
+    async function downloadPdf() {
+      if (!currentPayroll) return;
+      const p = currentPayroll;
+
+      // html2pdf.jsを動的に読み込み
+      if (!window.html2pdf) {
+        await loadScript('/html2pdf.bundle.min.js');
+      }
+
+      // 画面の明細プレビューをそのままPDF化
+      const element = document.querySelector('.payslip');
+      const opt = {
+        margin: 10,
+        filename: `給与明細_${p.staff.name}_${p.yearMonth}.pdf`,
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: { scale: 2 },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+      };
+      html2pdf().set(opt).from(element).save();
+    }
+
+    function loadScript(src) {
+      return new Promise((resolve) => {
+        const s = document.createElement('script');
+        s.src = src;
+        s.onload = resolve;
+        document.head.appendChild(s);
+      });
+    }
+
+    // 初期読み込み
+    loadStaff();
+
+    // 対象月を今月にデフォルト設定
+    const now = new Date();
+    const currentMonth = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+    document.getElementById('attMonth').value = currentMonth;
+    document.getElementById('payMonth').value = currentMonth;
+  </script>
+</body>
+</html>
