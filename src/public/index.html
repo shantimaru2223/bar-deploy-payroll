@@ -164,6 +164,7 @@
             <label>給与タイプ</label>
             <select id="payType" onchange="togglePayFields()">
               <option value="hourly">時給</option>
+              <option value="daily">日給</option>
               <option value="monthly">月給</option>
             </select>
           </div>
@@ -174,9 +175,17 @@
             <label>時給（円）</label>
             <input type="number" id="hourlyRate" placeholder="例: 1200">
           </div>
+          <div id="dailyField" class="pay-fields hidden">
+            <label>日当（円）</label>
+            <input type="number" id="dailyRate" placeholder="例: 10000">
+          </div>
           <div id="monthlyField" class="pay-fields hidden">
             <label>月給（円）</label>
             <input type="number" id="monthlySalary" placeholder="例: 200000">
+          </div>
+          <div>
+            <label>ドリンク単価（円/杯）</label>
+            <input type="number" id="drinkBackRate" placeholder="例: 500">
           </div>
           <div>
             <label>交通費（月額・円）</label>
@@ -191,7 +200,7 @@
 
       <h2>スタッフ一覧</h2>
       <table>
-        <thead><tr><th>名前</th><th>タイプ</th><th>時給 / 月給</th><th>交通費</th><th></th></tr></thead>
+        <thead><tr><th>名前</th><th>タイプ</th><th>給与</th><th>ドリンク単価</th><th>交通費</th><th></th></tr></thead>
         <tbody id="staffList"></tbody>
       </table>
       <div id="staffEmpty" class="empty-msg hidden">スタッフが登録されていません</div>
@@ -213,8 +222,26 @@
         </div>
       </div>
 
-      <!-- クイック入力フォーム -->
-      <div class="quick-input">
+      <!-- 月次データ（出勤日数・ドリンク杯数） -->
+      <div class="quick-input" id="monthlyCard" style="display:none;">
+        <h3>月次データ（この月の入力）</h3>
+        <div class="form-row" style="align-items: flex-end;">
+          <div id="workDaysField">
+            <label>出勤日数（日給用）</label>
+            <input type="number" id="monthlyWorkDays" placeholder="例: 15" min="0">
+          </div>
+          <div>
+            <label>ドリンク杯数（今月の合計）</label>
+            <input type="number" id="monthlyDrinkCount" placeholder="例: 40" min="0">
+          </div>
+          <div>
+            <button onclick="saveMonthly()" style="margin-top:0;">保存</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- クイック入力フォーム（時給スタッフ用） -->
+      <div class="quick-input" id="shiftCard">
         <h3>シフトを追加</h3>
         <div class="form-row" style="align-items: flex-end;">
           <div>
@@ -298,8 +325,14 @@
     function togglePayFields() {
       const type = document.getElementById('payType').value;
       document.getElementById('hourlyField').classList.toggle('hidden', type !== 'hourly');
+      document.getElementById('dailyField').classList.toggle('hidden', type !== 'daily');
       document.getElementById('monthlyField').classList.toggle('hidden', type !== 'monthly');
     }
+
+    // 給与タイプの日本語表示
+    const PAY_TYPE_LABEL = { hourly: '時給', daily: '日給', monthly: '月給' };
+    // スタッフ情報のキャッシュ（勤怠タブでタイプ判定に使う）
+    let staffCache = [];
 
     // --- スタッフ管理 ---
     async function loadStaff() {
@@ -315,15 +348,23 @@
       }
       empty.classList.add('hidden');
 
-      tbody.innerHTML = staff.map(s => `
+      tbody.innerHTML = staff.map(s => {
+        let pay;
+        if (s.pay_type === 'hourly') pay = s.hourly_rate.toLocaleString() + '円/時';
+        else if (s.pay_type === 'daily') pay = s.daily_rate.toLocaleString() + '円/日';
+        else pay = s.monthly_salary.toLocaleString() + '円/月';
+        const drink = (s.drink_back_rate || 0) > 0 ? s.drink_back_rate.toLocaleString() + '円/杯' : '-';
+        return `
         <tr>
           <td><strong>${s.name}</strong></td>
-          <td>${s.pay_type === 'hourly' ? '時給' : '月給'}</td>
-          <td>${s.pay_type === 'hourly' ? s.hourly_rate.toLocaleString() + '円/時' : s.monthly_salary.toLocaleString() + '円/月'}</td>
+          <td>${PAY_TYPE_LABEL[s.pay_type] || s.pay_type}</td>
+          <td>${pay}</td>
+          <td>${drink}</td>
           <td>${s.transport_fee.toLocaleString()}円</td>
           <td><button class="btn-small btn-danger" onclick="deleteStaff(${s.id})">削除</button></td>
         </tr>
-      `).join('');
+      `;
+      }).join('');
     }
 
     async function addStaff() {
@@ -331,21 +372,26 @@
       const pay_type = document.getElementById('payType').value;
       const hourly_rate = parseInt(document.getElementById('hourlyRate').value) || 0;
       const monthly_salary = parseInt(document.getElementById('monthlySalary').value) || 0;
+      const daily_rate = parseInt(document.getElementById('dailyRate').value) || 0;
+      const drink_back_rate = parseInt(document.getElementById('drinkBackRate').value) || 0;
       const transport_fee = parseInt(document.getElementById('transportFee').value) || 0;
 
       if (!name) { alert('名前を入力してください'); return; }
       if (pay_type === 'hourly' && hourly_rate <= 0) { alert('時給を入力してください'); return; }
+      if (pay_type === 'daily' && daily_rate <= 0) { alert('日当を入力してください'); return; }
       if (pay_type === 'monthly' && monthly_salary <= 0) { alert('月給を入力してください'); return; }
 
       await fetch('/api/staff', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, pay_type, hourly_rate, monthly_salary, transport_fee })
+        body: JSON.stringify({ name, pay_type, hourly_rate, monthly_salary, daily_rate, drink_back_rate, transport_fee })
       });
 
       document.getElementById('staffName').value = '';
       document.getElementById('hourlyRate').value = '';
       document.getElementById('monthlySalary').value = '';
+      document.getElementById('dailyRate').value = '';
+      document.getElementById('drinkBackRate').value = '';
       document.getElementById('transportFee').value = '';
       loadStaff();
     }
@@ -360,9 +406,11 @@
     async function loadStaffSelect() {
       const res = await fetch('/api/staff');
       const staff = await res.json();
+      staffCache = staff;
       const options = staff.map(s => `<option value="${s.id}">${s.name}</option>`).join('');
       document.getElementById('attStaff').innerHTML = options;
       document.getElementById('payStaff').innerHTML = options;
+      loadAttendance();
     }
 
     // --- 曜日ヘルパー ---
@@ -410,14 +458,47 @@
       const month = document.getElementById('attMonth').value;
       const emptyMsg = document.getElementById('attEmpty');
       const summary = document.getElementById('attSummary');
+      const monthlyCard = document.getElementById('monthlyCard');
+      const shiftCard = document.getElementById('shiftCard');
+      const attTable = document.getElementById('attTable');
 
+      // スタッフ・対象月が未選択なら初期表示に戻す
       if (!staffId || !month) {
-        emptyMsg.textContent = '対象月を選択してください';
-        emptyMsg.classList.remove('hidden');
+        monthlyCard.style.display = 'none';
+        shiftCard.style.display = 'none';
+        attTable.style.display = 'none';
         summary.style.display = 'none';
+        emptyMsg.textContent = 'スタッフと対象月を選択してください';
+        emptyMsg.classList.remove('hidden');
         document.getElementById('attendanceList').innerHTML = '';
         return;
       }
+
+      const staff = staffCache.find(s => s.id === parseInt(staffId));
+      const payType = staff ? staff.pay_type : 'hourly';
+
+      // 月次データ（出勤日数・ドリンク杯数）を読み込んで入力欄に反映
+      const mRes = await fetch(`/api/monthly/${staffId}/${month}`);
+      const m = await mRes.json();
+      document.getElementById('monthlyWorkDays').value = m.work_days || '';
+      document.getElementById('monthlyDrinkCount').value = m.drink_count || '';
+
+      // 月次カードは常に表示。出勤日数欄は日給のときだけ表示
+      monthlyCard.style.display = 'block';
+      document.getElementById('workDaysField').style.display = (payType === 'daily') ? 'block' : 'none';
+
+      // 時給スタッフだけシフト入力・勤務時間テーブルを使う
+      if (payType !== 'hourly') {
+        shiftCard.style.display = 'none';
+        attTable.style.display = 'none';
+        summary.style.display = 'none';
+        emptyMsg.classList.add('hidden');
+        document.getElementById('attendanceList').innerHTML = '';
+        return;
+      }
+
+      shiftCard.style.display = 'block';
+      attTable.style.display = 'table';
 
       const res = await fetch(`/api/attendance/${staffId}/${month}`);
       const rows = await res.json();
@@ -442,17 +523,9 @@
       document.getElementById('sumDays').textContent = rows.length;
       document.getElementById('sumHours').textContent = `${totalH}:${String(totalM).padStart(2, '0')}`;
 
-      // 見込み給与の計算
-      const staffRes = await fetch('/api/staff');
-      const staffList = await staffRes.json();
-      const staff = staffList.find(s => s.id === parseInt(staffId));
+      // 見込み給与（時給ぶん＋交通費）。ドリンクバックは保存後に明細で確認
       if (staff) {
-        let estimate;
-        if (staff.pay_type === 'hourly') {
-          estimate = Math.floor(totalMin / 60 * staff.hourly_rate) + staff.transport_fee;
-        } else {
-          estimate = staff.monthly_salary + staff.transport_fee;
-        }
+        const estimate = Math.floor(totalMin / 60 * staff.hourly_rate) + staff.transport_fee;
         document.getElementById('sumEstimate').textContent = '¥' + estimate.toLocaleString();
       }
 
@@ -477,6 +550,24 @@
     async function deleteAttendance(id) {
       if (!confirm('この勤怠データを削除しますか？')) return;
       await fetch(`/api/attendance/${id}`, { method: 'DELETE' });
+      loadAttendance();
+    }
+
+    // --- 月次データの保存（出勤日数・ドリンク杯数） ---
+    async function saveMonthly() {
+      const staff_id = document.getElementById('attStaff').value;
+      const year_month = document.getElementById('attMonth').value;
+      if (!staff_id || !year_month) { alert('スタッフと対象月を選択してください'); return; }
+
+      const work_days = parseInt(document.getElementById('monthlyWorkDays').value) || 0;
+      const drink_count = parseInt(document.getElementById('monthlyDrinkCount').value) || 0;
+
+      await fetch('/api/monthly', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ staff_id, year_month, work_days, drink_count })
+      });
+      alert('保存しました');
       loadAttendance();
     }
 
@@ -505,8 +596,27 @@
             <span class="value">時給 ${p.staff.hourly_rate.toLocaleString()}円</span>
           </div>
           <div class="payslip-row">
+            <span class="label">出勤日数</span>
+            <span class="value">${p.workDays}日</span>
+          </div>
+          <div class="payslip-row">
             <span class="label">総勤務時間</span>
             <span class="value">${totalH}時間${totalM > 0 ? totalM + '分' : ''}</span>
+          </div>
+        `;
+      } else if (p.staff.pay_type === 'daily') {
+        detailRows = `
+          <div class="payslip-row">
+            <span class="label">給与タイプ</span>
+            <span class="value">日給</span>
+          </div>
+          <div class="payslip-row">
+            <span class="label">出勤日数</span>
+            <span class="value">${p.workDays}日</span>
+          </div>
+          <div class="payslip-row">
+            <span class="label">日当</span>
+            <span class="value">${p.staff.daily_rate.toLocaleString()}円</span>
           </div>
         `;
       } else {
@@ -517,6 +627,14 @@
           </div>
         `;
       }
+
+      // ドリンクバックの行（杯数が0なら表示しない）
+      const drinkRow = p.drinkBack > 0 ? `
+          <div class="payslip-row">
+            <span class="label">ドリンクバック（${p.drinkCount}杯 × ${p.drinkBackRate.toLocaleString()}円）</span>
+            <span class="value">${p.drinkBack.toLocaleString()}円</span>
+          </div>
+      ` : '';
 
       document.getElementById('payslipPreview').innerHTML = `
         <div class="payslip">
@@ -543,6 +661,7 @@
                 <span class="label">基本給</span>
                 <span class="value">${p.basePay.toLocaleString()}円</span>
               </div>
+              ${drinkRow}
               <div class="payslip-row">
                 <span class="label">交通費</span>
                 <span class="value">${p.transportFee.toLocaleString()}円</span>
@@ -555,7 +674,7 @@
             <div class="payslip-section">
               <div class="payslip-section-title">控除</div>
               <div class="payslip-row">
-                <span class="label">源泉徴収税額（10.21%）</span>
+                <span class="label">源泉徴収税額（10.21%・交通費を除く）</span>
                 <span class="value" style="color: #e94560;">-${p.withholdingTax.toLocaleString()}円</span>
               </div>
             </div>

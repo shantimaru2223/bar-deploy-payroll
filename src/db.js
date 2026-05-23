@@ -13,6 +13,8 @@ db.exec(`
     pay_type TEXT NOT NULL DEFAULT 'hourly',
     hourly_rate INTEGER DEFAULT 0,
     monthly_salary INTEGER DEFAULT 0,
+    daily_rate INTEGER DEFAULT 0,
+    drink_back_rate INTEGER DEFAULT 0,
     transport_fee INTEGER DEFAULT 0,
     created_at TEXT DEFAULT (datetime('now', 'localtime'))
   )
@@ -29,5 +31,29 @@ db.exec(`
     FOREIGN KEY (staff_id) REFERENCES staff(id)
   )
 `);
+
+// 月ごとにまとめて入力するデータ（日給の出勤日数・ドリンク杯数）
+// スタッフ×対象月で1件に限定する
+db.exec(`
+  CREATE TABLE IF NOT EXISTS monthly_data (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    staff_id INTEGER NOT NULL,
+    year_month TEXT NOT NULL,
+    work_days INTEGER DEFAULT 0,
+    drink_count INTEGER DEFAULT 0,
+    UNIQUE(staff_id, year_month),
+    FOREIGN KEY (staff_id) REFERENCES staff(id)
+  )
+`);
+
+// 既存DBに列が無い場合だけ追加する（データを壊さない安全な更新）
+function addColumnIfMissing(table, column, definition) {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all();
+  if (!cols.some((c) => c.name === column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
+}
+addColumnIfMissing('staff', 'daily_rate', 'INTEGER DEFAULT 0');
+addColumnIfMissing('staff', 'drink_back_rate', 'INTEGER DEFAULT 0');
 
 module.exports = db;

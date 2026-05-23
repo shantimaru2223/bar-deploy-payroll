@@ -22,11 +22,19 @@ app.get('/api/staff', (req, res) => {
 
 // スタッフを登録
 app.post('/api/staff', (req, res) => {
-  const { name, pay_type, hourly_rate, monthly_salary, transport_fee } = req.body;
+  const { name, pay_type, hourly_rate, monthly_salary, daily_rate, drink_back_rate, transport_fee } = req.body;
   const stmt = db.prepare(
-    'INSERT INTO staff (name, pay_type, hourly_rate, monthly_salary, transport_fee) VALUES (?, ?, ?, ?, ?)'
+    'INSERT INTO staff (name, pay_type, hourly_rate, monthly_salary, daily_rate, drink_back_rate, transport_fee) VALUES (?, ?, ?, ?, ?, ?, ?)'
   );
-  const result = stmt.run(name, pay_type, hourly_rate || 0, monthly_salary || 0, transport_fee || 0);
+  const result = stmt.run(
+    name,
+    pay_type,
+    hourly_rate || 0,
+    monthly_salary || 0,
+    daily_rate || 0,
+    drink_back_rate || 0,
+    transport_fee || 0
+  );
   res.json({ id: result.lastInsertRowid });
 });
 
@@ -71,6 +79,27 @@ app.delete('/api/attendance/:id', (req, res) => {
   res.json({ success: true });
 });
 
+// 月次データを取得（出勤日数・ドリンク杯数）。無ければ0を返す
+app.get('/api/monthly/:staffId/:yearMonth', (req, res) => {
+  const { staffId, yearMonth } = req.params;
+  const row = db.prepare(
+    'SELECT work_days, drink_count FROM monthly_data WHERE staff_id = ? AND year_month = ?'
+  ).get(staffId, yearMonth);
+  res.json(row || { work_days: 0, drink_count: 0 });
+});
+
+// 月次データを保存（スタッフ×月で1件にまとめる＝あれば上書き）
+app.post('/api/monthly', (req, res) => {
+  const { staff_id, year_month, work_days, drink_count } = req.body;
+  db.prepare(`
+    INSERT INTO monthly_data (staff_id, year_month, work_days, drink_count)
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT(staff_id, year_month)
+    DO UPDATE SET work_days = excluded.work_days, drink_count = excluded.drink_count
+  `).run(staff_id, year_month, work_days || 0, drink_count || 0);
+  res.json({ success: true });
+});
+
 // 給与計算
 app.get('/api/payroll/:staffId/:yearMonth', (req, res) => {
   const { staffId, yearMonth } = req.params;
@@ -81,30 +110,47 @@ app.get('/api/payroll/:staffId/:yearMonth', (req, res) => {
     return res.status(404).json({ error: 'スタッフが見つかりません' });
   }
 
-  // 対象月の勤怠データを取得
+  // 対象月の勤怠データを取得（時給スタッフの勤務時間集計に使う）
   const attendances = db.prepare(
     "SELECT * FROM attendance WHERE staff_id = ? AND work_date LIKE ? ORDER BY work_date"
   ).all(staffId, `${yearMonth}%`);
 
-  // 総勤務分数を計算
-  const totalMinutes = attendances.reduce((sum, a) => sum + a.work_minutes, 0);
-  const workDays = attendances.length;
+  // 月次データ（日給の出勤日数・ドリンク杯数）を取得。無ければ0
+  const monthly = db.prepare(
+    'SELECT work_days, drink_count FROM monthly_data WHERE staff_id = ? AND year_month = ?'
+  ).get(staffId, yearMonth) || { work_days: 0, drink_count: 0 };
 
-  // 基本給の計算（給与タイプで分岐）
+  // 総勤務分数を計算（時給用）
+  const totalMinutes = attendances.reduce((sum, a) => sum + a.work_minutes, 0);
+
+  // 出勤日数・基本給の計算（給与タイプで分岐）
   let basePay;
+  let workDays;
   if (staff.pay_type === 'hourly') {
-    // 時給: 分単位で計算し端数切り捨て
+    // 時給: 勤怠の登録日数＝出勤日数、分単位で計算し端数切り捨て
+    workDays = attendances.length;
     basePay = Math.floor(totalMinutes / 60 * staff.hourly_rate);
+  } else if (staff.pay_type === 'daily') {
+    // 日給: 入力された出勤日数 × 日当
+    workDays = monthly.work_days;
+    basePay = staff.daily_rate * workDays;
   } else {
     // 月給: そのまま
+    workDays = attendances.length;
     basePay = staff.monthly_salary;
   }
 
-  // 源泉徴収税額の計算（基本給の10.21%、端数切り捨て）
-  const withholdingTax = Math.floor(basePay * 0.1021);
+  // ドリンクバック = 杯数 × 単価（全タイプ共通）
+  const drinkCount = monthly.drink_count;
+  const drinkBack = drinkCount * staff.drink_back_rate;
 
-  // 総支給額 = 基本給 + 交通費
-  const grossPay = basePay + staff.transport_fee;
+  // 源泉徴収の対象 = 交通費以外（基本給 + ドリンクバック）
+  const taxableBase = basePay + drinkBack;
+  // 源泉徴収税額（対象額の10.21%、端数切り捨て）
+  const withholdingTax = Math.floor(taxableBase * 0.1021);
+
+  // 総支給額 = 基本給 + ドリンクバック + 交通費
+  const grossPay = basePay + drinkBack + staff.transport_fee;
 
   // 差引支給額 = 総支給額 - 源泉徴収税額
   const netPay = grossPay - withholdingTax;
@@ -115,7 +161,11 @@ app.get('/api/payroll/:staffId/:yearMonth', (req, res) => {
     workDays,
     totalMinutes,
     basePay,
+    drinkCount,
+    drinkBackRate: staff.drink_back_rate,
+    drinkBack,
     transportFee: staff.transport_fee,
+    taxableBase,
     withholdingTax,
     grossPay,
     netPay
