@@ -117,3 +117,24 @@
 ### 次にやること
 - 既存スタッフの transport_fee は旧「月額」値のままなので、片道運賃に登録し直す（例: 5000→250 など）
 - 動作確認後、GitHubへコミット＆プッシュ → Renderで本番反映
+
+---
+
+## 2026-06-05（Phase 1: 入力・管理の信頼性）
+### やったこと（ブランチ phase1-input-reliability）
+- brainstorming → writing-plans スキルで設計・計画を作成（`docs/specs/`, `docs/plans/` に保存・コミット）
+- 給与計算を純粋関数 `src/payroll.js`（calcPayroll）に抽出（挙動不変）、`node:test` を整備
+- 入力検証 `src/validation.js` を新設（validateStaff/Attendance/Monthly）
+- スタッフ編集API `PUT /api/staff/:id` を追加、各POSTにサーバ側検証（不正は400）
+- フロント: 一覧に「編集」ボタン＋編集モード、インラインエラー・赤枠・送信中無効化・成功表示・サーバエラー表示、勤怠の日またぎ明示（「翌日終了として計算」）
+- 設計書 `design.md`・要件定義 `requirements.md` を現状仕様に更新、`package.json` の test を `node --test` に
+
+### テスト結果
+- ユニット: `node --test` 15件すべてパス（時給/日給/月給/境界値、検証の正常/異常/境界）
+- 実機プレビュー（Node22）: 編集ロード・更新(PUT)・一覧反映・成功表示OK、クライアント検証（負数で赤枠＋エラー）OK、サーバ検証（400/404）OK、日またぎ表示OK、コンソールエラーなし
+- 検証で変更したテストデータは元に戻し済み（時給太郎=1,200円）
+
+### 次にやること
+- ブランチを master へ反映するか確認（master→Render→本番のためオーナー判断が必要）
+- Phase 2（見た目の刷新：frontend-design / web-design-guidelines）
+- Phase 3（新機能：明細の保存・履歴／前月コピー／全員分一括PDF／月次ダッシュボード）
