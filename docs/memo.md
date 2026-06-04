@@ -138,3 +138,24 @@
 - ブランチを master へ反映するか確認（master→Render→本番のためオーナー判断が必要）
 - Phase 2（見た目の刷新：frontend-design / web-design-guidelines）
 - Phase 3（新機能：明細の保存・履歴／前月コピー／全員分一括PDF／月次ダッシュボード）
+
+---
+
+## 2026-06-05（Phase 2: 見た目の刷新＝レスポンシブ＋アクセシビリティ）
+### やったこと（ブランチ payroll-brushup）
+- `index.html` を `*.pre-phase2.bak` でバックアップしてから着手（変更は1ファイルに集約）
+- レスポンシブ: 幅640px以下で横並びフォームを縦積み化、主要ボタンを全幅・高さ44px以上に、一覧表を `.table-wrap` で横スクロール化、タブ・明細の余白を調整
+- アクセシビリティ: 全16入力欄に `<label for>` を関連付け、タブに `role=tablist/tab/tabpanel`＋`aria-selected/aria-controls`、通知に `aria-live`、検証エラー時に先頭欄へフォーカス、補助テキスト/タブ/表見出しのコントラストをAA基準へ、`:focus-visible` の可視枠を追加
+- 視覚/挙動の磨き: `prefers-reduced-motion` 対応、`color-scheme: dark`＋`theme-color` でネイティブUIもダーク化、金額を `tabular-nums` で桁揃え、`transition: all` を明示指定へ、ボタンに `touch-action: manipulation`
+- `web-design-guidelines` スキルでガイドライン照合 → 指摘（all遷移・color-scheme・theme-color・tabular-nums・touch-action）を反映
+- 設計書 `design.md` に「8. UI/UX設計」を追記
+
+### テスト結果
+- ユニット: Node22 で `npm test` 15件すべてパス（バックエンド不変）
+- 実機プレビュー（Node22）: デスクトップ1280px＝従来の横並びレイアウト維持・明細プレビュー無傷、スマホ375px＝フォーム縦積み/全幅ボタン/表は枠内で横スクロール、タブ切替＋ARIA連動、コンソールエラーなし
+- DOM監査: label紐付け16/16成立・未紐付け入力0・タブARIA正常・JS全関数（showTab/saveStaff/calcPayroll）健在
+- JS変更は `showTab`（aria-selected切替）と `saveStaff`（先頭エラーへフォーカス）のみ、`getElementById` 参照は不変
+
+### 次にやること
+- Phase 3（新機能：月次ダッシュボード `GET /api/summary/:ym`／前月コピー／全員分一括PDF）
+- 全Phase完了後、master へ反映するかをオーナーに確認（master→Render→本番）

@@ -3,23 +3,27 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#1a1a2e">
   <title>Bar Deploy - 給与明細アプリ</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
+    /* ネイティブUI（日付ピッカー・プルダウン・スクロールバー）もダークで表示 */
+    :root { color-scheme: dark; }
     body { font-family: 'Segoe UI', sans-serif; background: #1a1a2e; color: #eee; padding: 20px; }
     h1 { text-align: center; margin-bottom: 5px; color: #e94560; font-size: 28px; }
-    .subtitle { text-align: center; color: #888; margin-bottom: 30px; font-size: 13px; }
+    .subtitle { text-align: center; color: #9ea4bd; margin-bottom: 30px; font-size: 13px; }
     .container { max-width: 900px; margin: 0 auto; }
     h2 { font-size: 16px; color: #e94560; margin-bottom: 15px; padding-bottom: 8px; border-bottom: 1px solid #333; }
     h3 { font-size: 14px; color: #ccc; margin: 20px 0 10px; }
 
     /* タブ */
     .tabs { display: flex; gap: 0; margin-bottom: 0; }
-    .tab { flex: 1; padding: 12px 20px; background: #0d1b36; border: 1px solid #333; border-bottom: none; color: #666; cursor: pointer; font-size: 14px; font-weight: bold; text-align: center; transition: all 0.2s; }
+    .tab { flex: 1; padding: 12px 20px; background: #0d1b36; border: 1px solid #333; border-bottom: none; color: #9aa1bb; cursor: pointer; font-size: 14px; font-weight: bold; text-align: center; transition: background 0.2s, color 0.2s, border-color 0.2s; }
     .tab:first-child { border-radius: 8px 0 0 0; }
     .tab:last-child { border-radius: 0 8px 0 0; }
     .tab.active { background: #16213e; color: #e94560; border-bottom: 2px solid #e94560; }
-    .tab:hover:not(.active) { color: #aaa; }
+    .tab:hover:not(.active) { color: #cfd4e6; }
+    .tab:focus-visible { outline: 2px solid #ffd0d8; outline-offset: -3px; }
 
     /* セクション */
     .section { display: none; background: #16213e; padding: 25px; border-radius: 0 0 8px 8px; border: 1px solid #333; border-top: none; }
@@ -29,11 +33,14 @@
     .card { background: #0f3460; border-radius: 8px; padding: 20px; margin-bottom: 15px; }
 
     /* フォーム */
-    label { display: block; margin: 10px 0 5px; color: #aaa; font-size: 12px; font-weight: bold; letter-spacing: 0.5px; }
-    input, select { width: 100%; padding: 10px 12px; border: 1px solid #2a3a5c; border-radius: 6px; background: #0d1b36; color: #eee; font-size: 14px; transition: border 0.2s; }
-    input:focus, select:focus { outline: none; border-color: #e94560; }
-    button { padding: 10px 24px; background: #e94560; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: bold; transition: all 0.2s; }
+    label { display: block; margin: 10px 0 5px; color: #b8bdd0; font-size: 12px; font-weight: bold; letter-spacing: 0.5px; }
+    input, select { width: 100%; padding: 10px 12px; border: 1px solid #2a3a5c; border-radius: 6px; background: #0d1b36; color: #eee; font-size: 14px; transition: border 0.2s, box-shadow 0.2s; }
+    input:focus, select:focus { outline: none; border-color: #e94560; box-shadow: 0 0 0 3px rgba(233,69,96,0.18); }
+    /* キーボード操作時は太い枠で「今どこを操作中か」をはっきり示す */
+    input:focus-visible, select:focus-visible { outline: 2px solid #ff7a90; outline-offset: 1px; }
+    button { padding: 10px 24px; background: #e94560; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: bold; transition: background 0.2s, transform 0.2s; touch-action: manipulation; }
     button:hover { background: #c73750; transform: translateY(-1px); }
+    button:focus-visible { outline: 2px solid #ffd0d8; outline-offset: 2px; }
     .btn-small { padding: 4px 10px; font-size: 11px; }
     .btn-danger { background: #444; }
     .btn-danger:hover { background: #e94560; }
@@ -43,11 +50,14 @@
     /* 横並びフォーム */
     .form-row { display: flex; gap: 10px; }
     .form-row > div { flex: 1; }
+    /* 入力欄の下端にボタンを揃える行（スマホでは縦積み・全幅に切替） */
+    .row-bottom { align-items: flex-end; }
 
     /* テーブル */
+    .table-wrap { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
     table { width: 100%; border-collapse: collapse; margin-top: 10px; }
     th, td { padding: 10px 12px; text-align: left; font-size: 13px; }
-    th { color: #e94560; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 2px solid #e94560; }
+    th { color: #ff6b81; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 2px solid #e94560; }
     td { border-bottom: 1px solid #1a2a4a; }
     tr:hover td { background: rgba(233, 69, 96, 0.05); }
 
@@ -59,7 +69,7 @@
     .summary { display: flex; gap: 10px; margin: 15px 0; }
     .summary-item { flex: 1; background: #0d1b36; border-radius: 8px; padding: 15px; text-align: center; }
     .summary-item .value { font-size: 24px; font-weight: bold; color: #e94560; }
-    .summary-item .label { font-size: 11px; color: #888; margin-top: 5px; }
+    .summary-item .label { font-size: 11px; color: #9ea4bd; margin-top: 5px; }
 
     /* 勤怠入力 - クイック入力 */
     .quick-input { background: #0f3460; border-radius: 8px; padding: 15px; margin-bottom: 15px; }
@@ -136,15 +146,67 @@
     .payslip-total .amount { font-size: 28px; font-weight: bold; }
 
     /* メッセージ */
-    .empty-msg { text-align: center; color: #555; padding: 30px; font-size: 13px; }
+    .empty-msg { text-align: center; color: #888fa8; padding: 30px; font-size: 13px; }
 
     /* バリデーション・通知 */
     .form-error { background: rgba(233,69,96,0.12); border: 1px solid #e94560; color: #ff9aa9; border-radius: 6px; padding: 10px 12px; margin-top: 12px; font-size: 12px; white-space: pre-line; }
     .form-success { background: rgba(80,200,120,0.12); border: 1px solid #3ddc84; color: #8ff0b5; border-radius: 6px; padding: 10px 12px; margin-top: 12px; font-size: 12px; }
     input.invalid, select.invalid { border-color: #e94560; background: #2a1422; }
-    .shift-hint { font-size: 12px; color: #aaa; margin-top: 8px; }
+    .shift-hint { font-size: 12px; color: #b8bdd0; margin-top: 8px; }
     .shift-hint.overnight { color: #4dabf7; }
     button:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+    /* スクリーンリーダー専用（画面には出さず、読み上げだけ行う） */
+    .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+
+    /* 数字を等幅にして桁を揃える（金額が読みやすくなる） */
+    td, .summary-item .value, .payslip-row .value, .payslip-total .amount { font-variant-numeric: tabular-nums; }
+
+    /* ===== レスポンシブ（スマホ最適化：幅640px以下） ===== */
+    @media (max-width: 640px) {
+      body { padding: 12px; }
+      h1 { font-size: 22px; }
+      .subtitle { margin-bottom: 20px; }
+      .container { max-width: 100%; }
+      .section { padding: 16px; }
+
+      /* 横並びフォームを縦積みにして指で押しやすくする */
+      .form-row { flex-direction: column; gap: 10px; }
+      .quick-input .form-row { align-items: stretch; }
+      .row-bottom { align-items: stretch; }
+      .att-controls { flex-direction: column; align-items: stretch; gap: 10px; }
+      .att-controls > div:last-child { flex: 1; }
+
+      /* 主要ボタンは全幅・高さ確保でタップしやすくする */
+      .form-row button, .att-controls button, .quick-input button { width: 100%; min-height: 44px; }
+      #staffSubmitBtn, #staffCancelBtn { width: 100%; min-height: 44px; }
+      #staffCancelBtn { margin-top: 8px; }
+      .btn-small { min-height: 32px; padding: 6px 12px; font-size: 12px; }
+
+      /* タブは3つ並べても収まるよう詰める */
+      .tab { padding: 11px 6px; font-size: 12px; }
+
+      /* サマリーは小さめにして横並びを維持 */
+      .summary { gap: 8px; }
+      .summary-item { padding: 12px 8px; }
+      .summary-item .value { font-size: 18px; }
+
+      /* 表は最低幅を確保し、はみ出した分は横スクロール */
+      .table-wrap table { min-width: 480px; }
+
+      /* 明細は余白・字間を詰めてはみ出しを防ぐ */
+      .payslip-header { padding: 20px 18px; }
+      .payslip-header h3 { letter-spacing: 3px; font-size: 17px; }
+      .payslip-body { padding: 18px; }
+      .payslip-total { padding: 16px 18px; font-size: 16px; }
+      .payslip-total .amount { font-size: 22px; }
+    }
+
+    /* ===== 動きを減らす設定の人への配慮（めまい・乗り物酔い対策） ===== */
+    @media (prefers-reduced-motion: reduce) {
+      * { transition: none !important; }
+      button:hover { transform: none; }
+    }
   </style>
 </head>
 <body>
@@ -153,23 +215,23 @@
     <p class="subtitle">給与明細管理システム</p>
 
     <!-- タブ -->
-    <div class="tabs">
-      <button class="tab active" onclick="showTab('staff', this)">スタッフ管理</button>
-      <button class="tab" onclick="showTab('attendance', this)">勤怠入力</button>
-      <button class="tab" onclick="showTab('payroll', this)">給与明細</button>
+    <div class="tabs" role="tablist" aria-label="メイン機能">
+      <button class="tab active" id="tab-staff" role="tab" aria-selected="true" aria-controls="staff" onclick="showTab('staff', this)">スタッフ管理</button>
+      <button class="tab" id="tab-attendance" role="tab" aria-selected="false" aria-controls="attendance" onclick="showTab('attendance', this)">勤怠入力</button>
+      <button class="tab" id="tab-payroll" role="tab" aria-selected="false" aria-controls="payroll" onclick="showTab('payroll', this)">給与明細</button>
     </div>
 
     <!-- ==================== スタッフ管理 ==================== -->
-    <div id="staff" class="section active">
+    <div id="staff" class="section active" role="tabpanel" aria-labelledby="tab-staff">
       <div class="card">
         <h2 id="staffFormTitle">スタッフ登録</h2>
         <div class="form-row">
           <div>
-            <label>名前</label>
+            <label for="staffName">名前</label>
             <input type="text" id="staffName" placeholder="例: 山田太郎">
           </div>
           <div>
-            <label>給与タイプ</label>
+            <label for="payType">給与タイプ</label>
             <select id="payType" onchange="togglePayFields()">
               <option value="hourly">時給</option>
               <option value="daily">日給</option>
@@ -180,29 +242,29 @@
 
         <div class="form-row">
           <div id="hourlyField" class="pay-fields">
-            <label>時給（円）</label>
+            <label for="hourlyRate">時給（円）</label>
             <input type="number" id="hourlyRate" placeholder="例: 1200">
           </div>
           <div id="dailyField" class="pay-fields hidden">
-            <label>日当（円）</label>
+            <label for="dailyRate">日当（円）</label>
             <input type="number" id="dailyRate" placeholder="例: 10000">
           </div>
           <div id="monthlyField" class="pay-fields hidden">
-            <label>月給（円）</label>
+            <label for="monthlySalary">月給（円）</label>
             <input type="number" id="monthlySalary" placeholder="例: 200000">
           </div>
           <div>
-            <label>ドリンク単価（円/杯）</label>
+            <label for="drinkBackRate">ドリンク単価（円/杯）</label>
             <input type="number" id="drinkBackRate" placeholder="例: 500">
           </div>
           <div>
-            <label>交通費（片道・円）</label>
+            <label for="transportFee">交通費（片道・円）</label>
             <input type="number" id="transportFee" placeholder="例: 250">
           </div>
         </div>
 
-        <div id="staffError" class="form-error hidden"></div>
-        <div id="staffSuccess" class="form-success hidden"></div>
+        <div id="staffError" class="form-error hidden" role="alert" aria-live="assertive"></div>
+        <div id="staffSuccess" class="form-success hidden" role="status" aria-live="polite"></div>
         <div style="margin-top: 15px;">
           <button id="staffSubmitBtn" onclick="saveStaff()">登録する</button>
           <button id="staffCancelBtn" class="btn-secondary hidden" onclick="cancelEditStaff()">キャンセル</button>
@@ -210,25 +272,27 @@
       </div>
 
       <h2>スタッフ一覧</h2>
-      <table>
-        <thead><tr><th>名前</th><th>タイプ</th><th>給与</th><th>ドリンク単価</th><th>交通費（片道）</th><th></th></tr></thead>
-        <tbody id="staffList"></tbody>
-      </table>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th scope="col">名前</th><th scope="col">タイプ</th><th scope="col">給与</th><th scope="col">ドリンク単価</th><th scope="col">交通費（片道）</th><th scope="col"><span class="sr-only">操作</span></th></tr></thead>
+          <tbody id="staffList"></tbody>
+        </table>
+      </div>
       <div id="staffEmpty" class="empty-msg hidden">スタッフが登録されていません</div>
     </div>
 
     <!-- ==================== 勤怠入力 ==================== -->
-    <div id="attendance" class="section">
+    <div id="attendance" class="section" role="tabpanel" aria-labelledby="tab-attendance">
       <h2>勤怠入力</h2>
 
       <!-- スタッフ・月の選択 -->
       <div class="att-controls">
         <div>
-          <label>スタッフ</label>
+          <label for="attStaff">スタッフ</label>
           <select id="attStaff" onchange="loadAttendance()"></select>
         </div>
         <div>
-          <label>対象月</label>
+          <label for="attMonth">対象月</label>
           <input type="month" id="attMonth" onchange="loadAttendance()">
         </div>
       </div>
@@ -236,13 +300,13 @@
       <!-- 月次データ（出勤日数・ドリンク杯数） -->
       <div class="quick-input" id="monthlyCard" style="display:none;">
         <h3>月次データ（この月の入力）</h3>
-        <div class="form-row" style="align-items: flex-end;">
+        <div class="form-row">
           <div id="workDaysField">
-            <label>出勤日数（日給用）</label>
+            <label for="monthlyWorkDays">出勤日数（日給用）</label>
             <input type="number" id="monthlyWorkDays" placeholder="例: 15" min="0">
           </div>
           <div>
-            <label>ドリンク杯数（今月の合計）</label>
+            <label for="monthlyDrinkCount">ドリンク杯数（今月の合計）</label>
             <input type="number" id="monthlyDrinkCount" placeholder="例: 40" min="0">
           </div>
           <div>
@@ -254,17 +318,17 @@
       <!-- クイック入力フォーム（時給スタッフ用） -->
       <div class="quick-input" id="shiftCard">
         <h3>シフトを追加</h3>
-        <div class="form-row" style="align-items: flex-end;">
+        <div class="form-row">
           <div>
-            <label>勤務日</label>
+            <label for="workDate">勤務日</label>
             <input type="date" id="workDate">
           </div>
           <div>
-            <label>開始</label>
+            <label for="startTime">開始</label>
             <input type="time" id="startTime" oninput="updateShiftHint()">
           </div>
           <div>
-            <label>終了</label>
+            <label for="endTime">終了</label>
             <input type="time" id="endTime" oninput="updateShiftHint()">
           </div>
           <div>
@@ -291,24 +355,26 @@
       </div>
 
       <!-- 勤怠一覧 -->
-      <table id="attTable">
-        <thead><tr><th>日付</th><th>曜日</th><th>開始</th><th>終了</th><th>勤務時間</th><th></th></tr></thead>
-        <tbody id="attendanceList"></tbody>
-      </table>
+      <div class="table-wrap">
+        <table id="attTable">
+          <thead><tr><th scope="col">日付</th><th scope="col">曜日</th><th scope="col">開始</th><th scope="col">終了</th><th scope="col">勤務時間</th><th scope="col"><span class="sr-only">操作</span></th></tr></thead>
+          <tbody id="attendanceList"></tbody>
+        </table>
+      </div>
       <div id="attEmpty" class="empty-msg">対象月を選択してください</div>
     </div>
 
     <!-- ==================== 給与明細 ==================== -->
-    <div id="payroll" class="section">
+    <div id="payroll" class="section" role="tabpanel" aria-labelledby="tab-payroll">
       <h2>給与明細</h2>
 
-      <div class="form-row" style="align-items: flex-end;">
+      <div class="form-row row-bottom">
         <div>
-          <label>スタッフ</label>
+          <label for="payStaff">スタッフ</label>
           <select id="payStaff"></select>
         </div>
         <div>
-          <label>対象月</label>
+          <label for="payMonth">対象月</label>
           <input type="month" id="payMonth">
         </div>
         <div>
@@ -327,9 +393,10 @@
     // --- タブ切替 ---
     function showTab(name, btn) {
       document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
-      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.tab').forEach(t => { t.classList.remove('active'); t.setAttribute('aria-selected', 'false'); });
       document.getElementById(name).classList.add('active');
       btn.classList.add('active');
+      btn.setAttribute('aria-selected', 'true');
       if (name === 'attendance' || name === 'payroll') loadStaffSelect();
     }
 
@@ -432,6 +499,7 @@
         const box = document.getElementById('staffError');
         box.textContent = errs.join('\n');
         box.classList.remove('hidden');
+        if (invalid.length) document.getElementById(invalid[0]).focus();
         return;
       }
 
