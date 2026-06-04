@@ -1,6 +1,7 @@
 const express = require('express');
 const path = require('path');
 const db = require('./db');
+const { calcPayroll } = require('./payroll');
 
 const app = express();
 const PORT = 3000;
@@ -120,60 +121,14 @@ app.get('/api/payroll/:staffId/:yearMonth', (req, res) => {
     'SELECT work_days, drink_count FROM monthly_data WHERE staff_id = ? AND year_month = ?'
   ).get(staffId, yearMonth) || { work_days: 0, drink_count: 0 };
 
-  // 総勤務分数を計算（時給用）
-  const totalMinutes = attendances.reduce((sum, a) => sum + a.work_minutes, 0);
-
-  // 出勤日数・基本給の計算（給与タイプで分岐）
-  let basePay;
-  let workDays;
-  if (staff.pay_type === 'hourly') {
-    // 時給: 勤怠の登録日数＝出勤日数、分単位で計算し端数切り捨て
-    workDays = attendances.length;
-    basePay = Math.floor(totalMinutes / 60 * staff.hourly_rate);
-  } else if (staff.pay_type === 'daily') {
-    // 日給: 入力された出勤日数 × 日当
-    workDays = monthly.work_days;
-    basePay = staff.daily_rate * workDays;
-  } else {
-    // 月給: そのまま
-    workDays = attendances.length;
-    basePay = staff.monthly_salary;
-  }
-
-  // ドリンクバック = 杯数 × 単価（全タイプ共通）
-  const drinkCount = monthly.drink_count;
-  const drinkBack = drinkCount * staff.drink_back_rate;
-
-  // 源泉徴収の対象 = 交通費以外（基本給 + ドリンクバック）
-  const taxableBase = basePay + drinkBack;
-  // 源泉徴収税額（対象額の10.21%、端数切り捨て）
-  const withholdingTax = Math.floor(taxableBase * 0.1021);
-
-  // 交通費 = 片道運賃 × 2（往復）× 出勤日数
-  const transportFare = staff.transport_fee; // 登録値は「片道」の運賃
-  const transportFee = transportFare * 2 * workDays;
-
-  // 総支給額 = 基本給 + ドリンクバック + 交通費
-  const grossPay = basePay + drinkBack + transportFee;
-
-  // 差引支給額 = 総支給額 - 源泉徴収税額
-  const netPay = grossPay - withholdingTax;
+  // 給与計算（ロジックは純粋関数 src/payroll.js に委譲）
+  const result = calcPayroll(staff, attendances, monthly);
 
   res.json({
     staff,
     yearMonth,
-    workDays,
-    totalMinutes,
-    basePay,
-    drinkCount,
     drinkBackRate: staff.drink_back_rate,
-    drinkBack,
-    transportFare,
-    transportFee,
-    taxableBase,
-    withholdingTax,
-    grossPay,
-    netPay
+    ...result
   });
 });
 
