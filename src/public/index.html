@@ -137,6 +137,14 @@
 
     /* メッセージ */
     .empty-msg { text-align: center; color: #555; padding: 30px; font-size: 13px; }
+
+    /* バリデーション・通知 */
+    .form-error { background: rgba(233,69,96,0.12); border: 1px solid #e94560; color: #ff9aa9; border-radius: 6px; padding: 10px 12px; margin-top: 12px; font-size: 12px; white-space: pre-line; }
+    .form-success { background: rgba(80,200,120,0.12); border: 1px solid #3ddc84; color: #8ff0b5; border-radius: 6px; padding: 10px 12px; margin-top: 12px; font-size: 12px; }
+    input.invalid, select.invalid { border-color: #e94560; background: #2a1422; }
+    .shift-hint { font-size: 12px; color: #aaa; margin-top: 8px; }
+    .shift-hint.overnight { color: #4dabf7; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
   </style>
 </head>
 <body>
@@ -154,7 +162,7 @@
     <!-- ==================== スタッフ管理 ==================== -->
     <div id="staff" class="section active">
       <div class="card">
-        <h2>スタッフ登録</h2>
+        <h2 id="staffFormTitle">スタッフ登録</h2>
         <div class="form-row">
           <div>
             <label>名前</label>
@@ -193,8 +201,11 @@
           </div>
         </div>
 
+        <div id="staffError" class="form-error hidden"></div>
+        <div id="staffSuccess" class="form-success hidden"></div>
         <div style="margin-top: 15px;">
-          <button onclick="addStaff()">登録する</button>
+          <button id="staffSubmitBtn" onclick="saveStaff()">登録する</button>
+          <button id="staffCancelBtn" class="btn-secondary hidden" onclick="cancelEditStaff()">キャンセル</button>
         </div>
       </div>
 
@@ -250,16 +261,17 @@
           </div>
           <div>
             <label>開始</label>
-            <input type="time" id="startTime">
+            <input type="time" id="startTime" oninput="updateShiftHint()">
           </div>
           <div>
             <label>終了</label>
-            <input type="time" id="endTime">
+            <input type="time" id="endTime" oninput="updateShiftHint()">
           </div>
           <div>
             <button onclick="addAttendance()" style="margin-top: 0;">追加</button>
           </div>
         </div>
+        <div class="shift-hint hidden" id="shiftHint"></div>
       </div>
 
       <!-- サマリー -->
@@ -361,39 +373,129 @@
           <td>${pay}</td>
           <td>${drink}</td>
           <td>${s.transport_fee.toLocaleString()}円</td>
-          <td><button class="btn-small btn-danger" onclick="deleteStaff(${s.id})">削除</button></td>
+          <td>
+            <button class="btn-small btn-secondary" onclick="editStaff(${s.id})">編集</button>
+            <button class="btn-small btn-danger" onclick="deleteStaff(${s.id})">削除</button>
+          </td>
         </tr>
       `;
       }).join('');
     }
 
-    async function addStaff() {
-      const name = document.getElementById('staffName').value.trim();
-      const pay_type = document.getElementById('payType').value;
-      const hourly_rate = parseInt(document.getElementById('hourlyRate').value) || 0;
-      const monthly_salary = parseInt(document.getElementById('monthlySalary').value) || 0;
-      const daily_rate = parseInt(document.getElementById('dailyRate').value) || 0;
-      const drink_back_rate = parseInt(document.getElementById('drinkBackRate').value) || 0;
-      const transport_fee = parseInt(document.getElementById('transportFee').value) || 0;
+    // 編集中のスタッフID（null＝新規登録モード）
+    let editStaffId = null;
+    const STAFF_NUM_FIELDS = ['hourlyRate', 'monthlySalary', 'dailyRate', 'drinkBackRate', 'transportFee'];
 
-      if (!name) { alert('名前を入力してください'); return; }
-      if (pay_type === 'hourly' && hourly_rate <= 0) { alert('時給を入力してください'); return; }
-      if (pay_type === 'daily' && daily_rate <= 0) { alert('日当を入力してください'); return; }
-      if (pay_type === 'monthly' && monthly_salary <= 0) { alert('月給を入力してください'); return; }
+    function intVal(id) { return parseInt(document.getElementById(id).value) || 0; }
 
-      await fetch('/api/staff', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, pay_type, hourly_rate, monthly_salary, daily_rate, drink_back_rate, transport_fee })
-      });
+    // フォームの値を集める
+    function collectStaffForm() {
+      return {
+        name: document.getElementById('staffName').value.trim(),
+        pay_type: document.getElementById('payType').value,
+        hourly_rate: intVal('hourlyRate'),
+        monthly_salary: intVal('monthlySalary'),
+        daily_rate: intVal('dailyRate'),
+        drink_back_rate: intVal('drinkBackRate'),
+        transport_fee: intVal('transportFee')
+      };
+    }
 
-      document.getElementById('staffName').value = '';
-      document.getElementById('hourlyRate').value = '';
-      document.getElementById('monthlySalary').value = '';
-      document.getElementById('dailyRate').value = '';
-      document.getElementById('drinkBackRate').value = '';
-      document.getElementById('transportFee').value = '';
-      loadStaff();
+    // クライアント側の簡易チェック（サーバ側を正とし、主要ルールを再現）
+    function validateStaffClient(d) {
+      const errs = [];
+      const invalid = [];
+      if (!d.name) { errs.push('・名前は必須です'); invalid.push('staffName'); }
+      for (const id of STAFF_NUM_FIELDS) {
+        const raw = document.getElementById(id).value;
+        if (raw !== '' && (!Number.isInteger(Number(raw)) || Number(raw) < 0)) {
+          if (!errs.includes('・金額は0以上の整数で入力してください')) errs.push('・金額は0以上の整数で入力してください');
+          invalid.push(id);
+        }
+      }
+      return { errs, invalid };
+    }
+
+    function clearStaffMsg() {
+      document.getElementById('staffError').classList.add('hidden');
+      document.getElementById('staffSuccess').classList.add('hidden');
+      ['staffName', ...STAFF_NUM_FIELDS].forEach(id => document.getElementById(id).classList.remove('invalid'));
+    }
+
+    // 登録／編集の保存
+    async function saveStaff() {
+      clearStaffMsg();
+      const d = collectStaffForm();
+      const { errs, invalid } = validateStaffClient(d);
+      if (errs.length) {
+        invalid.forEach(id => document.getElementById(id).classList.add('invalid'));
+        const box = document.getElementById('staffError');
+        box.textContent = errs.join('\n');
+        box.classList.remove('hidden');
+        return;
+      }
+
+      const btn = document.getElementById('staffSubmitBtn');
+      btn.disabled = true;
+      try {
+        const url = editStaffId ? `/api/staff/${editStaffId}` : '/api/staff';
+        const method = editStaffId ? 'PUT' : 'POST';
+        const res = await fetch(url, {
+          method,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(d)
+        });
+        if (!res.ok) {
+          const e = await res.json().catch(() => ({}));
+          const box = document.getElementById('staffError');
+          box.textContent = e.error || '保存に失敗しました';
+          box.classList.remove('hidden');
+          return;
+        }
+        const msg = editStaffId ? 'スタッフ情報を更新しました' : 'スタッフを登録しました';
+        cancelEditStaff();
+        const ok = document.getElementById('staffSuccess');
+        ok.textContent = msg;
+        ok.classList.remove('hidden');
+        loadStaff();
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    // 編集モードに切り替え、既存値を読み込む
+    async function editStaff(id) {
+      clearStaffMsg();
+      const res = await fetch('/api/staff');
+      const staff = await res.json();
+      const s = staff.find(x => x.id === id);
+      if (!s) return;
+      document.getElementById('staffName').value = s.name;
+      document.getElementById('payType').value = s.pay_type;
+      document.getElementById('hourlyRate').value = s.hourly_rate || '';
+      document.getElementById('dailyRate').value = s.daily_rate || '';
+      document.getElementById('monthlySalary').value = s.monthly_salary || '';
+      document.getElementById('drinkBackRate').value = s.drink_back_rate || '';
+      document.getElementById('transportFee').value = s.transport_fee || '';
+      togglePayFields();
+      editStaffId = id;
+      document.getElementById('staffFormTitle').textContent = 'スタッフ編集';
+      document.getElementById('staffSubmitBtn').textContent = '更新する';
+      document.getElementById('staffCancelBtn').classList.remove('hidden');
+      document.getElementById('staffName').focus();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    // 編集モード解除＆フォームクリア
+    function cancelEditStaff() {
+      editStaffId = null;
+      ['staffName', ...STAFF_NUM_FIELDS].forEach(id => document.getElementById(id).value = '');
+      document.getElementById('payType').value = 'hourly';
+      togglePayFields();
+      document.getElementById('staffFormTitle').textContent = 'スタッフ登録';
+      document.getElementById('staffSubmitBtn').textContent = '登録する';
+      document.getElementById('staffCancelBtn').classList.add('hidden');
+      document.getElementById('staffError').classList.add('hidden');
     }
 
     async function deleteStaff(id) {
@@ -427,6 +529,29 @@
     }
 
     // --- 勤怠管理 ---
+    // 開始・終了から勤務分数を計算（終了≦開始は翌日終了として +24時間）
+    function calcShiftMinutes(start, end) {
+      const [sh, sm] = start.split(':').map(Number);
+      const [eh, em] = end.split(':').map(Number);
+      let mins = (eh * 60 + em) - (sh * 60 + sm);
+      const overnight = mins <= 0;
+      if (overnight) mins += 24 * 60;
+      return { mins, overnight };
+    }
+
+    // 入力中の開始・終了から勤務時間ヒントを表示（日またぎは明示）
+    function updateShiftHint() {
+      const start = document.getElementById('startTime').value;
+      const end = document.getElementById('endTime').value;
+      const hint = document.getElementById('shiftHint');
+      if (!start || !end) { hint.classList.add('hidden'); return; }
+      const { mins, overnight } = calcShiftMinutes(start, end);
+      const h = Math.floor(mins / 60), m = mins % 60;
+      hint.textContent = overnight ? `翌日終了として計算（${h}時間${m}分）` : `勤務時間 ${h}時間${m}分`;
+      hint.classList.toggle('overnight', overnight);
+      hint.classList.remove('hidden');
+    }
+
     async function addAttendance() {
       const staff_id = document.getElementById('attStaff').value;
       const work_date = document.getElementById('workDate').value;
@@ -437,16 +562,17 @@
         alert('全ての項目を入力してください');
         return;
       }
-      if (start_time === end_time) {
-        alert('開始時間と終了時間が同じです');
-        return;
-      }
 
-      await fetch('/api/attendance', {
+      const res = await fetch('/api/attendance', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ staff_id, work_date, start_time, end_time })
       });
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        alert(e.error || '追加に失敗しました');
+        return;
+      }
 
       // 日付だけリセット（開始・終了はそのままにして連続入力しやすく）
       document.getElementById('workDate').value = '';
@@ -564,11 +690,16 @@
       const work_days = parseInt(document.getElementById('monthlyWorkDays').value) || 0;
       const drink_count = parseInt(document.getElementById('monthlyDrinkCount').value) || 0;
 
-      await fetch('/api/monthly', {
+      const res = await fetch('/api/monthly', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ staff_id, year_month, work_days, drink_count })
       });
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        alert(e.error || '保存に失敗しました');
+        return;
+      }
       alert('保存しました');
       loadAttendance();
     }
