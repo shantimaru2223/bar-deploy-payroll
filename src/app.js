@@ -149,8 +149,12 @@ app.get('/api/payroll/:staffId/:yearMonth', (req, res) => {
   // 源泉徴収税額（対象額の10.21%、端数切り捨て）
   const withholdingTax = Math.floor(taxableBase * 0.1021);
 
+  // 交通費 = 片道運賃 × 2（往復）× 出勤日数
+  const transportFare = staff.transport_fee; // 登録値は「片道」の運賃
+  const transportFee = transportFare * 2 * workDays;
+
   // 総支給額 = 基本給 + ドリンクバック + 交通費
-  const grossPay = basePay + drinkBack + staff.transport_fee;
+  const grossPay = basePay + drinkBack + transportFee;
 
   // 差引支給額 = 総支給額 - 源泉徴収税額
   const netPay = grossPay - withholdingTax;
@@ -164,7 +168,8 @@ app.get('/api/payroll/:staffId/:yearMonth', (req, res) => {
     drinkCount,
     drinkBackRate: staff.drink_back_rate,
     drinkBack,
-    transportFee: staff.transport_fee,
+    transportFare,
+    transportFee,
     taxableBase,
     withholdingTax,
     grossPay,
