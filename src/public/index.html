@@ -162,6 +162,9 @@
     /* 数字を等幅にして桁を揃える（金額が読みやすくなる） */
     td, .summary-item .value, .payslip-row .value, .payslip-total .amount { font-variant-numeric: tabular-nums; }
 
+    /* 月次集計の操作ボタン行 */
+    .summary-actions { display: flex; gap: 10px; flex-wrap: wrap; margin: 12px 0; }
+
     /* ===== レスポンシブ（スマホ最適化：幅640px以下） ===== */
     @media (max-width: 640px) {
       body { padding: 12px; }
@@ -178,7 +181,7 @@
       .att-controls > div:last-child { flex: 1; }
 
       /* 主要ボタンは全幅・高さ確保でタップしやすくする */
-      .form-row button, .att-controls button, .quick-input button { width: 100%; min-height: 44px; }
+      .form-row button, .att-controls button, .quick-input button, .summary-actions button { width: 100%; min-height: 44px; }
       #staffSubmitBtn, #staffCancelBtn { width: 100%; min-height: 44px; }
       #staffCancelBtn { margin-top: 8px; }
       .btn-small { min-height: 32px; padding: 6px 12px; font-size: 12px; }
@@ -219,6 +222,7 @@
       <button class="tab active" id="tab-staff" role="tab" aria-selected="true" aria-controls="staff" onclick="showTab('staff', this)">スタッフ管理</button>
       <button class="tab" id="tab-attendance" role="tab" aria-selected="false" aria-controls="attendance" onclick="showTab('attendance', this)">勤怠入力</button>
       <button class="tab" id="tab-payroll" role="tab" aria-selected="false" aria-controls="payroll" onclick="showTab('payroll', this)">給与明細</button>
+      <button class="tab" id="tab-summary" role="tab" aria-selected="false" aria-controls="summary" onclick="showTab('summary', this)">月次集計</button>
     </div>
 
     <!-- ==================== スタッフ管理 ==================== -->
@@ -387,6 +391,51 @@
 
       <div id="payslipPreview"></div>
     </div>
+
+    <!-- ==================== 月次集計（ダッシュボード） ==================== -->
+    <div id="summary" class="section" role="tabpanel" aria-labelledby="tab-summary">
+      <h2>月次集計（全員）</h2>
+
+      <div class="att-controls">
+        <div>
+          <label for="summaryMonth">対象月</label>
+          <input type="month" id="summaryMonth" onchange="loadSummary()">
+        </div>
+      </div>
+
+      <div class="summary-actions">
+        <button class="btn-secondary" onclick="copyPrevMonth()">前月分をコピー</button>
+        <button id="allPdfBtn" onclick="downloadAllPdf()">全員分PDF出力</button>
+      </div>
+
+      <div id="summaryMsg" class="form-success hidden" role="status" aria-live="polite"></div>
+
+      <div class="summary" id="summaryTotals" style="display:none;">
+        <div class="summary-item">
+          <div class="value" id="totGross">¥0</div>
+          <div class="label">総支給額（合計）</div>
+        </div>
+        <div class="summary-item">
+          <div class="value" id="totTax">¥0</div>
+          <div class="label">源泉徴収（合計）</div>
+        </div>
+        <div class="summary-item">
+          <div class="value" id="totNet">¥0</div>
+          <div class="label">差引支給額（合計）</div>
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table id="summaryTable" style="display:none;">
+          <thead><tr><th scope="col">名前</th><th scope="col">タイプ</th><th scope="col">出勤</th><th scope="col">基本給</th><th scope="col">交通費</th><th scope="col">総支給</th><th scope="col">源泉</th><th scope="col">差引支給</th></tr></thead>
+          <tbody id="summaryList"></tbody>
+        </table>
+      </div>
+      <div id="summaryEmpty" class="empty-msg">対象月を選択してください</div>
+
+      <!-- 一括PDF生成用の隠しコンテナ（画面外で組み立てる） -->
+      <div id="bulkPdfArea" aria-hidden="true" style="position:absolute; left:-9999px; top:0; width:800px;"></div>
+    </div>
   </div>
 
   <script>
@@ -398,6 +447,7 @@
       btn.classList.add('active');
       btn.setAttribute('aria-selected', 'true');
       if (name === 'attendance' || name === 'payroll') loadStaffSelect();
+      if (name === 'summary') loadSummary();
     }
 
     // --- 給与タイプ切替 ---
@@ -782,8 +832,12 @@
 
       const res = await fetch(`/api/payroll/${staffId}/${month}`);
       currentPayroll = await res.json();
-      const p = currentPayroll;
+      document.getElementById('payslipPreview').innerHTML = buildPayslipHtml(currentPayroll);
+      document.getElementById('pdfBtn').classList.remove('hidden');
+    }
 
+    // 給与明細1人分のHTMLを組み立てて返す（画面プレビューと一括PDFで共用）
+    function buildPayslipHtml(p) {
       const [year, mon] = p.yearMonth.split('-');
       const totalH = Math.floor(p.totalMinutes / 60);
       const totalM = p.totalMinutes % 60;
@@ -837,7 +891,7 @@
           </div>
       ` : '';
 
-      document.getElementById('payslipPreview').innerHTML = `
+      return `
         <div class="payslip">
           <div class="payslip-header">
             <h3>給 与 明 細 書</h3>
@@ -886,8 +940,6 @@
           </div>
         </div>
       `;
-
-      document.getElementById('pdfBtn').classList.remove('hidden');
     }
 
     // --- PDF出力 ---
@@ -921,6 +973,126 @@
       });
     }
 
+    // --- 月次集計（ダッシュボード） ---
+    async function loadSummary() {
+      const ym = document.getElementById('summaryMonth').value;
+      const empty = document.getElementById('summaryEmpty');
+      const totals = document.getElementById('summaryTotals');
+      const table = document.getElementById('summaryTable');
+      const tbody = document.getElementById('summaryList');
+
+      if (!ym) {
+        empty.textContent = '対象月を選択してください';
+        empty.classList.remove('hidden');
+        totals.style.display = 'none';
+        table.style.display = 'none';
+        tbody.innerHTML = '';
+        return;
+      }
+
+      const res = await fetch(`/api/summary/${ym}`);
+      const data = await res.json();
+
+      if (!data.rows || data.rows.length === 0) {
+        tbody.innerHTML = '';
+        empty.textContent = 'スタッフが登録されていません';
+        empty.classList.remove('hidden');
+        totals.style.display = 'none';
+        table.style.display = 'none';
+        return;
+      }
+
+      empty.classList.add('hidden');
+      table.style.display = 'table';
+      totals.style.display = 'flex';
+
+      tbody.innerHTML = data.rows.map(r => `
+        <tr>
+          <td><strong>${r.name}</strong></td>
+          <td>${PAY_TYPE_LABEL[r.payType] || r.payType}</td>
+          <td>${r.workDays}日</td>
+          <td>${r.basePay.toLocaleString()}円</td>
+          <td>${r.transportFee.toLocaleString()}円</td>
+          <td>${r.grossPay.toLocaleString()}円</td>
+          <td>${r.withholdingTax.toLocaleString()}円</td>
+          <td><strong>${r.netPay.toLocaleString()}円</strong></td>
+        </tr>
+      `).join('');
+
+      document.getElementById('totGross').textContent = '¥' + data.totals.grossPay.toLocaleString();
+      document.getElementById('totTax').textContent = '¥' + data.totals.withholdingTax.toLocaleString();
+      document.getElementById('totNet').textContent = '¥' + data.totals.netPay.toLocaleString();
+    }
+
+    // 前月の月次データ（出勤日数・ドリンク杯数）を当月へコピー（既存は上書きしない）
+    async function copyPrevMonth() {
+      const ym = document.getElementById('summaryMonth').value;
+      if (!ym) { alert('対象月を選択してください'); return; }
+      const [y, mo] = ym.split('-').map(Number);
+      const d = new Date(y, mo - 1, 1);
+      d.setMonth(d.getMonth() - 1);
+      const prev = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+
+      if (!confirm(`${prev} の月次データ（出勤日数・ドリンク杯数）を ${ym} にコピーします。\n※ ${ym} に既に入力済みのスタッフは上書きしません。`)) return;
+
+      const res = await fetch('/api/monthly/copy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ from: prev, to: ym })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { alert(data.error || 'コピーに失敗しました'); return; }
+
+      const msg = document.getElementById('summaryMsg');
+      msg.textContent = `${prev} → ${ym}：${data.copied}件コピー（既存${data.skipped}件は変更なし）`;
+      msg.classList.remove('hidden');
+      loadSummary();
+    }
+
+    // 全員分の給与明細を1つのPDFにまとめて出力（人ごとにページを分ける）
+    async function downloadAllPdf() {
+      const ym = document.getElementById('summaryMonth').value;
+      if (!ym) { alert('対象月を選択してください'); return; }
+
+      const staffList = await (await fetch('/api/staff')).json();
+      if (!staffList.length) { alert('スタッフが登録されていません'); return; }
+
+      const btn = document.getElementById('allPdfBtn');
+      const prevText = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = '作成中…';
+      try {
+        if (!window.html2pdf) await loadScript('/html2pdf.bundle.min.js');
+
+        // 各スタッフの明細を取得してHTMLを組み立てる
+        const parts = [];
+        for (const s of staffList) {
+          const p = await (await fetch(`/api/payroll/${s.id}/${ym}`)).json();
+          parts.push(buildPayslipHtml(p));
+        }
+
+        // 画面外コンテナに連結（2人目以降の前にページ区切りを入れる）
+        const area = document.getElementById('bulkPdfArea');
+        area.innerHTML = parts
+          .map((html, i) => (i > 0 ? '<div class="html2pdf__page-break"></div>' : '') + html)
+          .join('');
+
+        const opt = {
+          margin: 10,
+          filename: `給与明細_全員_${ym}.pdf`,
+          image: { type: 'jpeg', quality: 0.98 },
+          html2canvas: { scale: 2 },
+          jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+          pagebreak: { mode: ['css', 'legacy'] }
+        };
+        await html2pdf().set(opt).from(area).save();
+        area.innerHTML = '';
+      } finally {
+        btn.disabled = false;
+        btn.textContent = prevText;
+      }
+    }
+
     // 初期読み込み
     loadStaff();
 
@@ -929,6 +1101,7 @@
     const currentMonth = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
     document.getElementById('attMonth').value = currentMonth;
     document.getElementById('payMonth').value = currentMonth;
+    document.getElementById('summaryMonth').value = currentMonth;
   </script>
 </body>
 </html>

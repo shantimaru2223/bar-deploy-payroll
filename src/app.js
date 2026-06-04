@@ -161,6 +161,83 @@ app.get('/api/payroll/:staffId/:yearMonth', (req, res) => {
   });
 });
 
+// 月次集計（全員分）: 対象月の全スタッフの給与を計算し、各行＋合計を返す
+app.get('/api/summary/:yearMonth', (req, res) => {
+  const { yearMonth } = req.params;
+  if (!/^\d{4}-\d{2}$/.test(yearMonth)) {
+    return res.status(400).json({ error: '対象年月が不正です (YYYY-MM)' });
+  }
+
+  const staffList = db.prepare('SELECT * FROM staff ORDER BY id').all();
+
+  // 各スタッフについて、給与計算API と同じ手順で計算する（ロジックは calcPayroll に集約）
+  const rows = staffList.map((staff) => {
+    const attendances = db.prepare(
+      "SELECT * FROM attendance WHERE staff_id = ? AND work_date LIKE ? ORDER BY work_date"
+    ).all(staff.id, `${yearMonth}%`);
+    const monthly = db.prepare(
+      'SELECT work_days, drink_count FROM monthly_data WHERE staff_id = ? AND year_month = ?'
+    ).get(staff.id, yearMonth) || { work_days: 0, drink_count: 0 };
+    const r = calcPayroll(staff, attendances, monthly);
+    return {
+      staffId: staff.id,
+      name: staff.name,
+      payType: staff.pay_type,
+      workDays: r.workDays,
+      basePay: r.basePay,
+      drinkBack: r.drinkBack,
+      transportFee: r.transportFee,
+      grossPay: r.grossPay,
+      withholdingTax: r.withholdingTax,
+      netPay: r.netPay
+    };
+  });
+
+  // 合計（整数のまま加算）
+  const totals = rows.reduce((t, r) => ({
+    basePay: t.basePay + r.basePay,
+    drinkBack: t.drinkBack + r.drinkBack,
+    transportFee: t.transportFee + r.transportFee,
+    grossPay: t.grossPay + r.grossPay,
+    withholdingTax: t.withholdingTax + r.withholdingTax,
+    netPay: t.netPay + r.netPay
+  }), { basePay: 0, drinkBack: 0, transportFee: 0, grossPay: 0, withholdingTax: 0, netPay: 0 });
+
+  res.json({ yearMonth, count: rows.length, rows, totals });
+});
+
+// 月次データの前月コピー: from(YYYY-MM) の出勤日数・ドリンク杯数を to へ複製
+// 既に to に入力があるスタッフは上書きしない（非破壊）
+app.post('/api/monthly/copy', (req, res) => {
+  const { from, to } = req.body || {};
+  if (!/^\d{4}-\d{2}$/.test(from || '') || !/^\d{4}-\d{2}$/.test(to || '')) {
+    return res.status(400).json({ error: '年月(from/to)が不正です (YYYY-MM)' });
+  }
+  if (from === to) {
+    return res.status(400).json({ error: 'コピー元と先が同じ月です' });
+  }
+
+  const src = db.prepare(
+    'SELECT staff_id, work_days, drink_count FROM monthly_data WHERE year_month = ?'
+  ).all(from);
+  const existsStmt = db.prepare('SELECT 1 FROM monthly_data WHERE staff_id = ? AND year_month = ?');
+  const insertStmt = db.prepare(
+    'INSERT INTO monthly_data (staff_id, year_month, work_days, drink_count) VALUES (?, ?, ?, ?)'
+  );
+
+  let copied = 0, skipped = 0;
+  const tx = db.transaction(() => {
+    for (const row of src) {
+      if (existsStmt.get(row.staff_id, to)) { skipped++; continue; } // 既存は触らない
+      insertStmt.run(row.staff_id, to, row.work_days, row.drink_count);
+      copied++;
+    }
+  });
+  tx();
+
+  res.json({ copied, skipped, sourceRows: src.length });
+});
+
 // サーバー起動
 app.listen(PORT, () => {
   console.log(`Bar Deploy 給与明細アプリが起動しました: http://localhost:${PORT}`);
