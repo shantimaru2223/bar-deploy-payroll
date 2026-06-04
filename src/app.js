@@ -2,6 +2,7 @@ const express = require('express');
 const path = require('path');
 const db = require('./db');
 const { calcPayroll } = require('./payroll');
+const v = require('./validation');
 
 const app = express();
 const PORT = 3000;
@@ -23,6 +24,8 @@ app.get('/api/staff', (req, res) => {
 
 // スタッフを登録
 app.post('/api/staff', (req, res) => {
+  const errs = v.validateStaff(req.body);
+  if (errs.length) return res.status(400).json({ error: errs.join(' / ') });
   const { name, pay_type, hourly_rate, monthly_salary, daily_rate, drink_back_rate, transport_fee } = req.body;
   const stmt = db.prepare(
     'INSERT INTO staff (name, pay_type, hourly_rate, monthly_salary, daily_rate, drink_back_rate, transport_fee) VALUES (?, ?, ?, ?, ?, ?, ?)'
@@ -37,6 +40,28 @@ app.post('/api/staff', (req, res) => {
     transport_fee || 0
   );
   res.json({ id: result.lastInsertRowid });
+});
+
+// スタッフを編集（更新）
+app.put('/api/staff/:id', (req, res) => {
+  const errs = v.validateStaff(req.body);
+  if (errs.length) return res.status(400).json({ error: errs.join(' / ') });
+  const exists = db.prepare('SELECT id FROM staff WHERE id = ?').get(req.params.id);
+  if (!exists) return res.status(404).json({ error: 'スタッフが見つかりません' });
+  const { name, pay_type, hourly_rate, monthly_salary, daily_rate, drink_back_rate, transport_fee } = req.body;
+  db.prepare(
+    'UPDATE staff SET name=?, pay_type=?, hourly_rate=?, monthly_salary=?, daily_rate=?, drink_back_rate=?, transport_fee=? WHERE id=?'
+  ).run(
+    name,
+    pay_type,
+    hourly_rate || 0,
+    monthly_salary || 0,
+    daily_rate || 0,
+    drink_back_rate || 0,
+    transport_fee || 0,
+    req.params.id
+  );
+  res.json({ success: true });
 });
 
 // スタッフを削除
@@ -56,6 +81,8 @@ app.get('/api/attendance/:staffId/:yearMonth', (req, res) => {
 
 // 勤怠データを登録
 app.post('/api/attendance', (req, res) => {
+  const errs = v.validateAttendance(req.body);
+  if (errs.length) return res.status(400).json({ error: errs.join(' / ') });
   const { staff_id, work_date, start_time, end_time } = req.body;
 
   // 勤務時間を分単位で計算（日またぎ対応）
@@ -91,6 +118,8 @@ app.get('/api/monthly/:staffId/:yearMonth', (req, res) => {
 
 // 月次データを保存（スタッフ×月で1件にまとめる＝あれば上書き）
 app.post('/api/monthly', (req, res) => {
+  const errs = v.validateMonthly(req.body);
+  if (errs.length) return res.status(400).json({ error: errs.join(' / ') });
   const { staff_id, year_month, work_days, drink_count } = req.body;
   db.prepare(`
     INSERT INTO monthly_data (staff_id, year_month, work_days, drink_count)
