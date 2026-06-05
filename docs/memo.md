@@ -184,3 +184,20 @@
 ### 次にやること（オーナー判断）
 - 3フェーズ完了。`payroll-brushup` を master へ反映するか確認（master→Render→本番デプロイ）
 - 反映前に、実機で「前月コピー」「全員分PDF」をオーナー自身が一度操作して最終確認推奨
+
+---
+
+## 2026-06-05（本番反映：master へマージ → Render デプロイ）
+### やったこと
+- オーナー指示により `payroll-brushup` を `master` へ反映（Phase 1〜3を一括で本番化）
+- 作業ツリーを乱さないため、ブランチ切替なしで `git push origin payroll-brushup:master` を実行
+  - ファストフォワード（`34c3ff8 → 778bd92`、分岐なし・コンフリクトなし）
+  - その後 `git branch -f master payroll-brushup` でローカルmasterも同期
+- origin/master 更新により **Render が自動デプロイ**（本番反映）
+
+### 確認事項
+- Render ダッシュボードでデプロイ完了を確認、本番URLでライブ動作チェック（タブ表示・明細・月次集計）
+- 本番DBは Render 側（ローカルの data.db とは別）。前月コピー/一括PDFは本番データで再確認推奨
+
+### メモ
+- 本ログ追記コミットは記録目的のため push しない（再デプロイ不要）。次回 master 反映時に同梱される
