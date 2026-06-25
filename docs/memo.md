@@ -201,3 +201,49 @@
 
 ### メモ
 - 本ログ追記コミットは記録目的のため push しない（再デプロイ不要）。次回 master 反映時に同梱される
+
+---
+
+## 2026-06-25（データ永続化：Turso移行＝再起動してもデータが残るように）
+### 背景・課題
+- 本番（Render Free）は無活動でspin down／再デプロイのたびにファイルシステムが初期化され、SQLiteファイル(data.db)ごとデータが消えていた
+- オーナー要望「データが残るようにしてほしい」→ 無料を維持したまま外部DB(Turso)へ保存する方針を選択
+
+### やったこと（ブランチ payroll-brushup → master、origin/master=37ac55a）
+- DB接続を `better-sqlite3` → `libsql`（Turso公式・better-sqlite3互換の同期API）へ移行
+  - `src/db.js`：接続部のみ差し替え。環境変数 `TURSO_DATABASE_URL`/`TURSO_AUTH_TOKEN` があればTursoクラウド、無ければ従来通りローカル `data.db`（app.jsのロジックは不変）
+  - `package.json`：Node26非対応の `better-sqlite3` を依存から削除
+  - 変更前に `data.db`・`db.js` を `*.pre-turso.bak` でバックアップ
+- Turso：無料プラン（100DB/5GB/月5億行読・1000万行書）、東京リージョンでDB作成
+- Render：環境変数2つ（URL/トークン）をブラウザ操作で登録 → `master` へFFマージ＆push → 自動デプロイ
+
+### テスト結果（すべてOK）
+- ローカル：libsqlスモーク（同期API・transaction・ON CONFLICT・PRAGMAがNode26で動作）、既存data.db読込（スタッフ4件）、`npm test` 15件パス、libsql単独で起動
+- リモート：手元からTursoへ接続し、読み取り・書き込み・transactionを同期APIで実証
+- 本番：デプロイログに「[DB] Tursoクラウドに接続しました」を確認。本番でスタッフ登録→別マシン(ローカル)からTursoに同データを確認→**サーバー再起動後もデータ残存を実証**→テストデータ削除し本番は空[]に復元
+
+### 次にやること
+- 【セキュリティ】検証で使ったTursoトークンを無効化し、新トークンを作成してRenderを更新（ローテート）
+- 【別件】既存の依存脆弱性（jspdf/dompurify=PDF生成系, pdfmake, path-to-regexp=Express）の対応を検討。今回のlibsql移行とは無関係に以前から存在
+- 【任意】git の user.name/user.email が未設定（コミットが maruy@MacBook-Pro.local 名義）。本番動作には影響なし
+
+---
+
+## 2026-06-26（機能追加：月給の交通費・複数控除）
+### 背景・要望（オーナー）
+- ①月給スタッフは出勤日数の入力欄がなく交通費が0になる → 月給でも出勤日数を入力して交通費を算出したい
+- ②住民税などの控除を「自由記入＋金額」で複数入れられるようにしたい
+
+### やったこと（ブランチ payroll-brushup、1ファイルずつ＋都度テスト）
+- **Step1 `src/db.js`**：控除テーブル `deductions`(staff_id, year_month, name, amount) を追加（既存テーブルは不変・CREATE IF NOT EXISTS）
+- **Step2 `src/payroll.js`**：月給の出勤日数を `m.work_days` に変更（基本給は月給で固定、交通費＝片道×2×出勤日数）。`calcPayroll` に第4引数 `deductions` を追加し、`otherDeductions`(その他控除合計)・`totalDeductions`(源泉＋その他)・`netPay=総支給−控除合計` を返す。控除を渡さなければ従来通り（後方互換）。`test/payroll.test.js` に3件追加
+- **Step3 `src/app.js`＋`src/validation.js`**：控除API（GET/POST `/api/deductions`、POSTは月単位で全置換＋トランザクション）。`/api/payroll`・`/api/summary` で控除を取得し計算へ反映。`validateDeductions`(項目名必須・金額0以上)
+- **Step4 `src/public/index.html`**：勤怠タブの月次データに控除入力（項目名＋金額の行を追加/削除/保存）。出勤日数欄を月給でも表示しラベル変更。明細の控除セクションに源泉＋各控除＋控除合計。月次集計に控除列。控除名はXSS対策で `escapeHtml`
+
+### テスト結果（すべてOK）
+- `npm test` 18件パス（既存15＋新3：月給交通費／複数控除／後方互換）
+- curl＋ブラウザ(eval)で検証：月給花子（月給20万・片道1万）に出勤20日→交通費40万、控除2件（住民税8000・社会保険12000）→差引559,580。明細・月次集計とも正しく表示。異常系（項目名なし）はHTTP400。JSエラーなし。検証用 `2099-12` データは削除しDB復元
+- ※ ブラウザ自動テストで月の値を直接代入した際、集計表が一瞬古い描画になったが、実データ・API・計算はすべて正しいことをDB/サーバ/DOMで確認（実ユーザーは月をselectで選ぶため問題なし）
+
+### 次にやること
+- 本番反映（master へマージ→Renderデプロイ）はオーナー承認後。Turso本番の `deductions` テーブルは起動時の `CREATE TABLE IF NOT EXISTS` で自動作成される

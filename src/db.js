@@ -55,6 +55,18 @@ db.exec(`
   )
 `);
 
+// 控除（住民税・社会保険料など）。スタッフ×対象月で複数行を保存する
+db.exec(`
+  CREATE TABLE IF NOT EXISTS deductions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    staff_id INTEGER NOT NULL,
+    year_month TEXT NOT NULL,
+    name TEXT NOT NULL,
+    amount INTEGER NOT NULL DEFAULT 0,
+    FOREIGN KEY (staff_id) REFERENCES staff(id)
+  )
+`);
+
 // 既存DBに列が無い場合だけ追加する（データを壊さない安全な更新）
 function addColumnIfMissing(table, column, definition) {
   const cols = db.prepare(`PRAGMA table_info(${table})`).all();

@@ -1,8 +1,10 @@
 // 給与計算（純粋関数）
 // app.js の従来ロジックと出力を完全に一致させる。DB・Express に依存しないため
 // Node のバージョンに関係なくテスト可能。
-function calcPayroll(staff, attendances, monthly) {
+// deductions（控除）は省略可。渡さなければ「その他控除なし」として従来通り計算する。
+function calcPayroll(staff, attendances, monthly, deductions) {
   const m = monthly || { work_days: 0, drink_count: 0 };
+  const deductionList = Array.isArray(deductions) ? deductions : [];
 
   // 総勤務分数（時給用）
   const totalMinutes = attendances.reduce((sum, a) => sum + a.work_minutes, 0);
@@ -19,8 +21,8 @@ function calcPayroll(staff, attendances, monthly) {
     workDays = m.work_days;
     basePay = staff.daily_rate * workDays;
   } else {
-    // 月給: そのまま
-    workDays = attendances.length;
+    // 月給: 基本給は月給で固定。出勤日数は交通費の計算用に月次データから取得する
+    workDays = m.work_days;
     basePay = staff.monthly_salary;
   }
 
@@ -36,9 +38,13 @@ function calcPayroll(staff, attendances, monthly) {
   const transportFare = staff.transport_fee; // 登録値は「片道」の運賃
   const transportFee = transportFare * 2 * workDays;
 
-  // 総支給額・差引支給額
+  // その他控除（住民税・社会保険料など）の合計。金額は整数（円）で扱う
+  const otherDeductions = deductionList.reduce((sum, d) => sum + (d.amount || 0), 0);
+
+  // 総支給額・控除合計・差引支給額
   const grossPay = basePay + drinkBack + transportFee;
-  const netPay = grossPay - withholdingTax;
+  const totalDeductions = withholdingTax + otherDeductions; // 源泉徴収 ＋ その他控除
+  const netPay = grossPay - totalDeductions;
 
   return {
     workDays,
@@ -50,6 +56,9 @@ function calcPayroll(staff, attendances, monthly) {
     transportFee,
     taxableBase,
     withholdingTax,
+    deductions: deductionList, // その他控除の明細（項目名・金額）
+    otherDeductions,           // その他控除の合計
+    totalDeductions,           // 源泉徴収 ＋ その他控除
     grossPay,
     netPay
   };

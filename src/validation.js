@@ -48,4 +48,21 @@ function validateMonthly(b) {
   return e;
 }
 
-module.exports = { validateStaff, validateAttendance, validateMonthly, isNonNegInt };
+// 控除（住民税など）の検証。items は {name, amount} の配列。空配列（控除なし）も許容。
+function validateDeductions(b) {
+  const e = [];
+  if (!isNonNegInt(b && b.staff_id)) e.push('スタッフIDが不正です');
+  if (!YM_RE.test((b && b.year_month) || '')) e.push('対象年月が不正です (YYYY-MM)');
+  const items = b && b.items;
+  if (!Array.isArray(items)) {
+    e.push('控除データが不正です');
+    return e;
+  }
+  items.forEach((it, i) => {
+    if (!it || !String(it.name || '').trim()) e.push(`控除${i + 1}行目: 項目名は必須です`);
+    if (!isNonNegInt(it && it.amount)) e.push(`控除${i + 1}行目: 金額は0以上の整数で入力してください`);
+  });
+  return e;
+}
+
+module.exports = { validateStaff, validateAttendance, validateMonthly, validateDeductions, isNonNegInt };

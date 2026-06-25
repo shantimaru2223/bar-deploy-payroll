@@ -306,7 +306,7 @@
         <h3>月次データ（この月の入力）</h3>
         <div class="form-row">
           <div id="workDaysField">
-            <label for="monthlyWorkDays">出勤日数（日給用）</label>
+            <label for="monthlyWorkDays">出勤日数（日給・月給／交通費の計算に使用）</label>
             <input type="number" id="monthlyWorkDays" placeholder="例: 15" min="0">
           </div>
           <div>
@@ -316,6 +316,17 @@
           <div>
             <button onclick="saveMonthly()" style="margin-top:0;">保存</button>
           </div>
+        </div>
+      </div>
+
+      <!-- 控除（住民税・社会保険料など）。スタッフ×対象月で複数行を入力できる -->
+      <div class="quick-input" id="deductionCard" style="display:none;">
+        <h3>控除（住民税・社会保険料など）</h3>
+        <p class="shift-hint" style="margin-bottom:8px;">源泉徴収とは別に、差引支給額から引く控除を入力します（任意・複数可）。</p>
+        <div id="deductionRows"></div>
+        <div class="form-row" style="margin-top:8px;">
+          <div><button type="button" class="btn-secondary" onclick="addDeductionRow()" style="margin-top:0;">＋ 控除を追加</button></div>
+          <div><button type="button" onclick="saveDeductions()" style="margin-top:0;">控除を保存</button></div>
         </div>
       </div>
 
@@ -427,7 +438,7 @@
 
       <div class="table-wrap">
         <table id="summaryTable" style="display:none;">
-          <thead><tr><th scope="col">名前</th><th scope="col">タイプ</th><th scope="col">出勤</th><th scope="col">基本給</th><th scope="col">交通費</th><th scope="col">総支給</th><th scope="col">源泉</th><th scope="col">差引支給</th></tr></thead>
+          <thead><tr><th scope="col">名前</th><th scope="col">タイプ</th><th scope="col">出勤</th><th scope="col">基本給</th><th scope="col">交通費</th><th scope="col">総支給</th><th scope="col">源泉</th><th scope="col">控除</th><th scope="col">差引支給</th></tr></thead>
           <tbody id="summaryList"></tbody>
         </table>
       </div>
@@ -709,6 +720,7 @@
       // スタッフ・対象月が未選択なら初期表示に戻す
       if (!staffId || !month) {
         monthlyCard.style.display = 'none';
+        document.getElementById('deductionCard').style.display = 'none';
         shiftCard.style.display = 'none';
         attTable.style.display = 'none';
         summary.style.display = 'none';
@@ -727,9 +739,14 @@
       document.getElementById('monthlyWorkDays').value = m.work_days || '';
       document.getElementById('monthlyDrinkCount').value = m.drink_count || '';
 
-      // 月次カードは常に表示。出勤日数欄は日給のときだけ表示
+      // 月次カードは常に表示。出勤日数欄は日給・月給で表示（交通費の計算に使う）
       monthlyCard.style.display = 'block';
-      document.getElementById('workDaysField').style.display = (payType === 'daily') ? 'block' : 'none';
+      document.getElementById('workDaysField').style.display = (payType === 'daily' || payType === 'monthly') ? 'block' : 'none';
+
+      // 控除カードを表示し、その月の控除を読み込んで入力行に展開する
+      document.getElementById('deductionCard').style.display = 'block';
+      const dRes = await fetch(`/api/deductions/${staffId}/${month}`);
+      renderDeductionRows(await dRes.json());
 
       // 時給スタッフだけシフト入力・勤務時間テーブルを使う
       if (payType !== 'hourly') {
@@ -820,6 +837,62 @@
       }
       alert('保存しました');
       loadAttendance();
+    }
+
+    // --- 控除（住民税など）の入力・保存 ---
+    // HTML属性に安全に埋め込むためのエスケープ（控除の項目名はユーザー入力のため）
+    function escapeHtml(s) {
+      return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    }
+    // 取得した控除リストを入力行に展開する
+    function renderDeductionRows(items) {
+      document.getElementById('deductionRows').innerHTML = '';
+      (Array.isArray(items) ? items : []).forEach(it => addDeductionRow(it.name, it.amount));
+    }
+    // 控除の入力行を1つ追加する
+    function addDeductionRow(name = '', amount = '') {
+      const row = document.createElement('div');
+      row.className = 'form-row deduction-row';
+      row.innerHTML = `
+        <div><label class="sr-only">控除項目名</label><input type="text" class="ded-name" placeholder="項目名（例: 住民税）" value="${escapeHtml(name)}"></div>
+        <div><label class="sr-only">控除金額</label><input type="number" class="ded-amount" placeholder="金額（円）" min="0" value="${amount === '' || amount == null ? '' : Number(amount)}"></div>
+        <div><button type="button" class="btn-small btn-danger" onclick="removeDeductionRow(this)">削除</button></div>
+      `;
+      document.getElementById('deductionRows').appendChild(row);
+    }
+    // 控除の入力行を削除する
+    function removeDeductionRow(btn) {
+      const row = btn.closest('.deduction-row');
+      if (row) row.remove();
+    }
+    // 控除を保存（その月の控除を全置換）
+    async function saveDeductions() {
+      const staff_id = document.getElementById('attStaff').value;
+      const year_month = document.getElementById('attMonth').value;
+      if (!staff_id || !year_month) { alert('スタッフと対象月を選択してください'); return; }
+
+      const items = [];
+      let invalid = false;
+      document.querySelectorAll('#deductionRows .deduction-row').forEach(row => {
+        const name = row.querySelector('.ded-name').value.trim();
+        const amount = parseInt(row.querySelector('.ded-amount').value) || 0;
+        if (name === '' && amount === 0) return; // 完全に空の行は無視
+        if (name === '') invalid = true;          // 金額だけで項目名が無いのはエラー
+        items.push({ name, amount });
+      });
+      if (invalid) { alert('控除の項目名を入力してください'); return; }
+
+      const res = await fetch('/api/deductions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ staff_id, year_month, items })
+      });
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        alert(e.error || '控除の保存に失敗しました');
+        return;
+      }
+      alert('控除を保存しました');
     }
 
     // --- 給与計算 ---
@@ -932,6 +1005,16 @@
                 <span class="label">源泉徴収税額（10.21%・交通費を除く）</span>
                 <span class="value" style="color: #e94560;">-${p.withholdingTax.toLocaleString()}円</span>
               </div>
+              ${(p.deductions || []).map(d => `
+              <div class="payslip-row">
+                <span class="label">${escapeHtml(d.name)}</span>
+                <span class="value" style="color: #e94560;">-${d.amount.toLocaleString()}円</span>
+              </div>`).join('')}
+              ${(p.deductions && p.deductions.length) ? `
+              <div class="payslip-row" style="border-top: 1px solid #eee; padding-top: 8px; margin-top: 4px;">
+                <span class="label">控除合計</span>
+                <span class="value" style="color: #e94560;">-${p.totalDeductions.toLocaleString()}円</span>
+              </div>` : ''}
             </div>
           </div>
           <div class="payslip-total">
@@ -1015,6 +1098,7 @@
           <td>${r.transportFee.toLocaleString()}円</td>
           <td>${r.grossPay.toLocaleString()}円</td>
           <td>${r.withholdingTax.toLocaleString()}円</td>
+          <td>${(r.otherDeductions || 0).toLocaleString()}円</td>
           <td><strong>${r.netPay.toLocaleString()}円</strong></td>
         </tr>
       `).join('');

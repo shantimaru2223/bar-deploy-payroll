@@ -150,8 +150,13 @@ app.get('/api/payroll/:staffId/:yearMonth', (req, res) => {
     'SELECT work_days, drink_count FROM monthly_data WHERE staff_id = ? AND year_month = ?'
   ).get(staffId, yearMonth) || { work_days: 0, drink_count: 0 };
 
+  // 控除（住民税など）を取得
+  const deductions = db.prepare(
+    'SELECT name, amount FROM deductions WHERE staff_id = ? AND year_month = ? ORDER BY id'
+  ).all(staffId, yearMonth);
+
   // 給与計算（ロジックは純粋関数 src/payroll.js に委譲）
-  const result = calcPayroll(staff, attendances, monthly);
+  const result = calcPayroll(staff, attendances, monthly, deductions);
 
   res.json({
     staff,
@@ -178,7 +183,10 @@ app.get('/api/summary/:yearMonth', (req, res) => {
     const monthly = db.prepare(
       'SELECT work_days, drink_count FROM monthly_data WHERE staff_id = ? AND year_month = ?'
     ).get(staff.id, yearMonth) || { work_days: 0, drink_count: 0 };
-    const r = calcPayroll(staff, attendances, monthly);
+    const deductions = db.prepare(
+      'SELECT name, amount FROM deductions WHERE staff_id = ? AND year_month = ? ORDER BY id'
+    ).all(staff.id, yearMonth);
+    const r = calcPayroll(staff, attendances, monthly, deductions);
     return {
       staffId: staff.id,
       name: staff.name,
@@ -189,6 +197,7 @@ app.get('/api/summary/:yearMonth', (req, res) => {
       transportFee: r.transportFee,
       grossPay: r.grossPay,
       withholdingTax: r.withholdingTax,
+      otherDeductions: r.otherDeductions,
       netPay: r.netPay
     };
   });
@@ -200,8 +209,9 @@ app.get('/api/summary/:yearMonth', (req, res) => {
     transportFee: t.transportFee + r.transportFee,
     grossPay: t.grossPay + r.grossPay,
     withholdingTax: t.withholdingTax + r.withholdingTax,
+    otherDeductions: t.otherDeductions + r.otherDeductions,
     netPay: t.netPay + r.netPay
-  }), { basePay: 0, drinkBack: 0, transportFee: 0, grossPay: 0, withholdingTax: 0, netPay: 0 });
+  }), { basePay: 0, drinkBack: 0, transportFee: 0, grossPay: 0, withholdingTax: 0, otherDeductions: 0, netPay: 0 });
 
   res.json({ yearMonth, count: rows.length, rows, totals });
 });
@@ -236,6 +246,40 @@ app.post('/api/monthly/copy', (req, res) => {
   tx();
 
   res.json({ copied, skipped, sourceRows: src.length });
+});
+
+// --- 控除（住民税など）API ---
+
+// 控除を取得（スタッフ×対象月）
+app.get('/api/deductions/:staffId/:yearMonth', (req, res) => {
+  const { staffId, yearMonth } = req.params;
+  const rows = db.prepare(
+    'SELECT id, name, amount FROM deductions WHERE staff_id = ? AND year_month = ? ORDER BY id'
+  ).all(staffId, yearMonth);
+  res.json(rows);
+});
+
+// 控除を保存（スタッフ×対象月で全置換）。items = [{ name, amount }, ...]（空配列＝控除なし）
+app.post('/api/deductions', (req, res) => {
+  const errs = v.validateDeductions(req.body);
+  if (errs.length) return res.status(400).json({ error: errs.join(' / ') });
+  const { staff_id, year_month, items } = req.body;
+
+  const delStmt = db.prepare('DELETE FROM deductions WHERE staff_id = ? AND year_month = ?');
+  const insStmt = db.prepare(
+    'INSERT INTO deductions (staff_id, year_month, name, amount) VALUES (?, ?, ?, ?)'
+  );
+
+  // その月の控除をいったん消してから入れ直す（編集＝全置換）。途中で失敗しても壊れないようトランザクション
+  const tx = db.transaction(() => {
+    delStmt.run(staff_id, year_month);
+    for (const it of items) {
+      insStmt.run(staff_id, year_month, String(it.name).trim(), it.amount || 0);
+    }
+  });
+  tx();
+
+  res.json({ success: true, count: items.length });
 });
 
 // サーバー起動
