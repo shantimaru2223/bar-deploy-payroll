@@ -12,9 +12,9 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
-    "better-sqlite3": "^12.6.2",
     "express": "^5.2.1",
     "html2pdf.js": "^0.14.0",
+    "libsql": "^0.5.29",
     "pdfmake": "^0.3.4"
   }
 }

@@ -1,9 +1,18 @@
-const Database = require('better-sqlite3');
+const Database = require('libsql');
 const path = require('path');
 
-// データベースファイルをプロジェクト直下に作成
-const dbPath = path.join(__dirname, '..', 'data.db');
-const db = new Database(dbPath);
+// 接続先を環境変数で切り替える（書き方は同じまま、ローカルとクラウド両対応）
+// - TURSO_DATABASE_URL がある（本番Render）→ Tursoクラウドに接続し、再デプロイしてもデータが消えない
+// - 無い（ローカル開発・テスト）→ 今まで通りプロジェクト直下の data.db ファイル
+const tursoUrl = process.env.TURSO_DATABASE_URL;
+const tursoAuthToken = process.env.TURSO_AUTH_TOKEN;
+
+const db = tursoUrl
+  ? new Database(tursoUrl, { authToken: tursoAuthToken }) // 本番: Tursoクラウド（消えない保管庫）
+  : new Database(path.join(__dirname, '..', 'data.db'));  // ローカル: ファイル（従来通り）
+
+// どちらに接続したかを起動ログに出す（鍵などの秘密情報は出さない）
+console.log(tursoUrl ? '[DB] Tursoクラウドに接続しました' : '[DB] ローカルファイル(data.db)に接続しました');
 
 // テーブルが無ければ作成する
 db.exec(`
