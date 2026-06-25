@@ -236,14 +236,12 @@ app.post('/api/monthly/copy', (req, res) => {
   );
 
   let copied = 0, skipped = 0;
-  const tx = db.transaction(() => {
-    for (const row of src) {
-      if (existsStmt.get(row.staff_id, to)) { skipped++; continue; } // 既存は触らない
-      insertStmt.run(row.staff_id, to, row.work_days, row.drink_count);
-      copied++;
-    }
-  });
-  tx();
+  // ※ libsqlのリモート(Turso)では db.transaction() が使えないため個別に実行する（非破壊＝既存スキップは維持）
+  for (const row of src) {
+    if (existsStmt.get(row.staff_id, to)) { skipped++; continue; } // 既存は触らない
+    insertStmt.run(row.staff_id, to, row.work_days, row.drink_count);
+    copied++;
+  }
 
   res.json({ copied, skipped, sourceRows: src.length });
 });
@@ -270,14 +268,12 @@ app.post('/api/deductions', (req, res) => {
     'INSERT INTO deductions (staff_id, year_month, name, amount) VALUES (?, ?, ?, ?)'
   );
 
-  // その月の控除をいったん消してから入れ直す（編集＝全置換）。途中で失敗しても壊れないようトランザクション
-  const tx = db.transaction(() => {
-    delStmt.run(staff_id, year_month);
-    for (const it of items) {
-      insStmt.run(staff_id, year_month, String(it.name).trim(), it.amount || 0);
-    }
-  });
-  tx();
+  // その月の控除をいったん消してから入れ直す（編集＝全置換）
+  // ※ libsqlのリモート(Turso)では db.transaction() が「cannot rollback」エラーになるため個別に実行する
+  delStmt.run(staff_id, year_month);
+  for (const it of items) {
+    insStmt.run(staff_id, year_month, String(it.name).trim(), it.amount || 0);
+  }
 
   res.json({ success: true, count: items.length });
 });
