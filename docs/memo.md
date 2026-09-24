@@ -260,3 +260,10 @@
   - DB: monthly_data に bonus 列を addColumnIfMissing で追加（既存データは0）。ローカルDBのバックアップ: ~/.claude/backups/bar-deploy-payroll-data.db.pre-bonus.bak
   - テスト 22件 pass、ブラウザで入力→明細→集計→コピー→異常系(400)を確認
 - 次にやること: コミット → master反映・Renderデプロイ（Turso側にも起動時に bonus 列が自動追加される）
+
+## 2026-09-24 本番反映（賞与欄）
+- `f665fb3` を `git push origin payroll-brushup:master`（FF）→ Render自動デプロイ（約1分で反映）。ローカルmasterも同期
+- 本番確認: 画面に賞与欄が表示／GET /api/monthly・/api/payroll・/api/summary が bonus を返す（Turso に bonus 列が自動追加されたことを確認）／bonus=-1 は400
+- 本番には月次データの削除APIがないため、書き込みテストはしていない（ローカルで確認済み）
+- 気づき: 本番に 2099-12 の月次データ（staff_id=3, 全0）が以前から残っている。害はないが、消すなら Turso 側で直接削除が必要
+- 次にやること: なし（賞与機能は完了）。別件: 依存ライブラリの脆弱性対応
