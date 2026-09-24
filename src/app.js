@@ -107,26 +107,26 @@ app.delete('/api/attendance/:id', (req, res) => {
   res.json({ success: true });
 });
 
-// 月次データを取得（出勤日数・ドリンク杯数）。無ければ0を返す
+// 月次データを取得（出勤日数・ドリンク杯数・賞与）。無ければ0を返す
 app.get('/api/monthly/:staffId/:yearMonth', (req, res) => {
   const { staffId, yearMonth } = req.params;
   const row = db.prepare(
-    'SELECT work_days, drink_count FROM monthly_data WHERE staff_id = ? AND year_month = ?'
+    'SELECT work_days, drink_count, bonus FROM monthly_data WHERE staff_id = ? AND year_month = ?'
   ).get(staffId, yearMonth);
-  res.json(row || { work_days: 0, drink_count: 0 });
+  res.json(row || { work_days: 0, drink_count: 0, bonus: 0 });
 });
 
 // 月次データを保存（スタッフ×月で1件にまとめる＝あれば上書き）
 app.post('/api/monthly', (req, res) => {
   const errs = v.validateMonthly(req.body);
   if (errs.length) return res.status(400).json({ error: errs.join(' / ') });
-  const { staff_id, year_month, work_days, drink_count } = req.body;
+  const { staff_id, year_month, work_days, drink_count, bonus } = req.body;
   db.prepare(`
-    INSERT INTO monthly_data (staff_id, year_month, work_days, drink_count)
-    VALUES (?, ?, ?, ?)
+    INSERT INTO monthly_data (staff_id, year_month, work_days, drink_count, bonus)
+    VALUES (?, ?, ?, ?, ?)
     ON CONFLICT(staff_id, year_month)
-    DO UPDATE SET work_days = excluded.work_days, drink_count = excluded.drink_count
-  `).run(staff_id, year_month, work_days || 0, drink_count || 0);
+    DO UPDATE SET work_days = excluded.work_days, drink_count = excluded.drink_count, bonus = excluded.bonus
+  `).run(staff_id, year_month, work_days || 0, drink_count || 0, Number(bonus) || 0);
   res.json({ success: true });
 });
 
@@ -147,7 +147,7 @@ app.get('/api/payroll/:staffId/:yearMonth', (req, res) => {
 
   // 月次データ（日給の出勤日数・ドリンク杯数）を取得。無ければ0
   const monthly = db.prepare(
-    'SELECT work_days, drink_count FROM monthly_data WHERE staff_id = ? AND year_month = ?'
+    'SELECT work_days, drink_count, bonus FROM monthly_data WHERE staff_id = ? AND year_month = ?'
   ).get(staffId, yearMonth) || { work_days: 0, drink_count: 0 };
 
   // 控除（住民税など）を取得
@@ -181,7 +181,7 @@ app.get('/api/summary/:yearMonth', (req, res) => {
       "SELECT * FROM attendance WHERE staff_id = ? AND work_date LIKE ? ORDER BY work_date"
     ).all(staff.id, `${yearMonth}%`);
     const monthly = db.prepare(
-      'SELECT work_days, drink_count FROM monthly_data WHERE staff_id = ? AND year_month = ?'
+      'SELECT work_days, drink_count, bonus FROM monthly_data WHERE staff_id = ? AND year_month = ?'
     ).get(staff.id, yearMonth) || { work_days: 0, drink_count: 0 };
     const deductions = db.prepare(
       'SELECT name, amount FROM deductions WHERE staff_id = ? AND year_month = ? ORDER BY id'
@@ -194,6 +194,7 @@ app.get('/api/summary/:yearMonth', (req, res) => {
       workDays: r.workDays,
       basePay: r.basePay,
       drinkBack: r.drinkBack,
+      bonus: r.bonus,
       transportFee: r.transportFee,
       grossPay: r.grossPay,
       withholdingTax: r.withholdingTax,
@@ -206,18 +207,19 @@ app.get('/api/summary/:yearMonth', (req, res) => {
   const totals = rows.reduce((t, r) => ({
     basePay: t.basePay + r.basePay,
     drinkBack: t.drinkBack + r.drinkBack,
+    bonus: t.bonus + r.bonus,
     transportFee: t.transportFee + r.transportFee,
     grossPay: t.grossPay + r.grossPay,
     withholdingTax: t.withholdingTax + r.withholdingTax,
     otherDeductions: t.otherDeductions + r.otherDeductions,
     netPay: t.netPay + r.netPay
-  }), { basePay: 0, drinkBack: 0, transportFee: 0, grossPay: 0, withholdingTax: 0, otherDeductions: 0, netPay: 0 });
+  }), { basePay: 0, drinkBack: 0, bonus: 0, transportFee: 0, grossPay: 0, withholdingTax: 0, otherDeductions: 0, netPay: 0 });
 
   res.json({ yearMonth, count: rows.length, rows, totals });
 });
 
 // 月次データの前月コピー: from(YYYY-MM) の出勤日数・ドリンク杯数を to へ複製
-// 既に to に入力があるスタッフは上書きしない（非破壊）
+// 既に to に入力があるスタッフは上書きしない（非破壊）。賞与は毎月のものではないので引き継がない（0のまま）
 app.post('/api/monthly/copy', (req, res) => {
   const { from, to } = req.body || {};
   if (!/^\d{4}-\d{2}$/.test(from || '') || !/^\d{4}-\d{2}$/.test(to || '')) {

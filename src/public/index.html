@@ -301,7 +301,7 @@
         </div>
       </div>
 
-      <!-- 月次データ（出勤日数・ドリンク杯数） -->
+      <!-- 月次データ（出勤日数・ドリンク杯数・賞与） -->
       <div class="quick-input" id="monthlyCard" style="display:none;">
         <h3>月次データ（この月の入力）</h3>
         <div class="form-row">
@@ -312,6 +312,10 @@
           <div>
             <label for="monthlyDrinkCount">ドリンク杯数（今月の合計）</label>
             <input type="number" id="monthlyDrinkCount" placeholder="例: 40" min="0">
+          </div>
+          <div>
+            <label for="monthlyBonus">賞与（円・任意／無い月は空欄）</label>
+            <input type="number" id="monthlyBonus" placeholder="例: 50000" min="0" step="1">
           </div>
           <div>
             <button onclick="saveMonthly()" style="margin-top:0;">保存</button>
@@ -438,7 +442,7 @@
 
       <div class="table-wrap">
         <table id="summaryTable" style="display:none;">
-          <thead><tr><th scope="col">名前</th><th scope="col">タイプ</th><th scope="col">出勤</th><th scope="col">基本給</th><th scope="col">交通費</th><th scope="col">総支給</th><th scope="col">源泉</th><th scope="col">控除</th><th scope="col">差引支給</th></tr></thead>
+          <thead><tr><th scope="col">名前</th><th scope="col">タイプ</th><th scope="col">出勤</th><th scope="col">基本給</th><th scope="col">賞与</th><th scope="col">交通費</th><th scope="col">総支給</th><th scope="col">源泉</th><th scope="col">控除</th><th scope="col">差引支給</th></tr></thead>
           <tbody id="summaryList"></tbody>
         </table>
       </div>
@@ -738,6 +742,7 @@
       const m = await mRes.json();
       document.getElementById('monthlyWorkDays').value = m.work_days || '';
       document.getElementById('monthlyDrinkCount').value = m.drink_count || '';
+      document.getElementById('monthlyBonus').value = m.bonus || '';
 
       // 月次カードは常に表示。出勤日数欄は日給・月給で表示（交通費の計算に使う）
       monthlyCard.style.display = 'block';
@@ -816,7 +821,7 @@
       loadAttendance();
     }
 
-    // --- 月次データの保存（出勤日数・ドリンク杯数） ---
+    // --- 月次データの保存（出勤日数・ドリンク杯数・賞与） ---
     async function saveMonthly() {
       const staff_id = document.getElementById('attStaff').value;
       const year_month = document.getElementById('attMonth').value;
@@ -824,11 +829,14 @@
 
       const work_days = parseInt(document.getElementById('monthlyWorkDays').value) || 0;
       const drink_count = parseInt(document.getElementById('monthlyDrinkCount').value) || 0;
+      // 賞与は空欄なら0円。小数・マイナスはサーバ側の検証で弾く（勝手に丸めない）
+      const bonusRaw = document.getElementById('monthlyBonus').value.trim();
+      const bonus = bonusRaw === '' ? 0 : Number(bonusRaw);
 
       const res = await fetch('/api/monthly', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ staff_id, year_month, work_days, drink_count })
+        body: JSON.stringify({ staff_id, year_month, work_days, drink_count, bonus })
       });
       if (!res.ok) {
         const e = await res.json().catch(() => ({}));
@@ -964,6 +972,14 @@
           </div>
       ` : '';
 
+      // 賞与の行（0円・未入力なら表示しない）
+      const bonusRow = p.bonus > 0 ? `
+          <div class="payslip-row">
+            <span class="label">賞与</span>
+            <span class="value">${p.bonus.toLocaleString()}円</span>
+          </div>
+      ` : '';
+
       return `
         <div class="payslip">
           <div class="payslip-header">
@@ -990,6 +1006,7 @@
                 <span class="value">${p.basePay.toLocaleString()}円</span>
               </div>
               ${drinkRow}
+              ${bonusRow}
               <div class="payslip-row">
                 <span class="label">交通費（片道${p.transportFare.toLocaleString()}円 × 2 × ${p.workDays}日）</span>
                 <span class="value">${p.transportFee.toLocaleString()}円</span>
@@ -1095,6 +1112,7 @@
           <td>${PAY_TYPE_LABEL[r.payType] || r.payType}</td>
           <td>${r.workDays}日</td>
           <td>${r.basePay.toLocaleString()}円</td>
+          <td>${(r.bonus || 0).toLocaleString()}円</td>
           <td>${r.transportFee.toLocaleString()}円</td>
           <td>${r.grossPay.toLocaleString()}円</td>
           <td>${r.withholdingTax.toLocaleString()}円</td>

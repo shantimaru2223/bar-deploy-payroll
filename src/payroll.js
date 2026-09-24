@@ -30,8 +30,11 @@ function calcPayroll(staff, attendances, monthly, deductions) {
   const drinkCount = m.drink_count;
   const drinkBack = drinkCount * staff.drink_back_rate;
 
-  // 源泉徴収の対象 = 交通費以外（基本給 + ドリンクバック）、税率10.21%・端数切り捨て
-  const taxableBase = basePay + drinkBack;
+  // 賞与（任意）。未入力・旧データ（列なし）は0円扱い
+  const bonus = m.bonus || 0;
+
+  // 源泉徴収の対象 = 交通費以外（基本給 + ドリンクバック + 賞与）、税率10.21%・端数切り捨て
+  const taxableBase = basePay + drinkBack + bonus;
   const withholdingTax = Math.floor(taxableBase * 0.1021);
 
   // 交通費 = 片道運賃 × 2（往復）× 出勤日数
@@ -42,7 +45,7 @@ function calcPayroll(staff, attendances, monthly, deductions) {
   const otherDeductions = deductionList.reduce((sum, d) => sum + (d.amount || 0), 0);
 
   // 総支給額・控除合計・差引支給額
-  const grossPay = basePay + drinkBack + transportFee;
+  const grossPay = basePay + drinkBack + bonus + transportFee;
   const totalDeductions = withholdingTax + otherDeductions; // 源泉徴収 ＋ その他控除
   const netPay = grossPay - totalDeductions;
 
@@ -52,6 +55,7 @@ function calcPayroll(staff, attendances, monthly, deductions) {
     basePay,
     drinkCount,
     drinkBack,
+    bonus,
     transportFare,
     transportFee,
     taxableBase,

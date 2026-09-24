@@ -77,3 +77,24 @@ test('no deductions arg = backward compatible', () => {
   assert.equal(r.otherDeductions, 0);
   assert.equal(r.netPay, 189790); // 200000 − 10210（源泉のみ）
 });
+
+// 賞与あり → 総支給に加算し、源泉徴収（10.21%）の対象にも含める
+test('bonus', () => {
+  const staff = { pay_type: 'daily', hourly_rate: 0, monthly_salary: 0, daily_rate: 10000, drink_back_rate: 0, transport_fee: 5000 };
+  const r = calcPayroll(staff, [], { work_days: 10, drink_count: 0, bonus: 50000 });
+  assert.equal(r.bonus, 50000);
+  assert.equal(r.taxableBase, 150000);    // 基本給100000 + 賞与50000（交通費は対象外）
+  assert.equal(r.withholdingTax, 15315);  // floor(150000×0.1021)
+  assert.equal(r.grossPay, 250000);       // 100000 + 50000 + 交通費100000
+  assert.equal(r.netPay, 234685);         // 250000 − 15315
+});
+
+// 賞与なし（列が無い旧データ・null）→ 0円扱いで従来通り
+test('bonus missing or null = 0', () => {
+  const staff = { pay_type: 'daily', daily_rate: 10000, drink_back_rate: 0, transport_fee: 5000, hourly_rate: 0, monthly_salary: 0 };
+  for (const m of [{ work_days: 10, drink_count: 0 }, { work_days: 10, drink_count: 0, bonus: null }, { work_days: 10, drink_count: 0, bonus: 0 }]) {
+    const r = calcPayroll(staff, [], m);
+    assert.equal(r.bonus, 0);
+    assert.equal(r.netPay, 189790);
+  }
+});

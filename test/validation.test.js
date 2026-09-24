@@ -21,3 +21,18 @@ test('monthly ok', () => assert.deepEqual(
   validateMonthly({ staff_id: 1, year_month: '2026-06', work_days: 10, drink_count: 3 }), []));
 test('monthly days over', () => assert.ok(validateMonthly({ staff_id: 1, year_month: '2026-06', work_days: 32, drink_count: 0 }).length > 0));
 test('monthly bad ym', () => assert.ok(validateMonthly({ staff_id: 1, year_month: '202606', work_days: 1, drink_count: 0 }).length > 0));
+
+// 賞与: 空欄・未指定はOK、値があるなら0以上の整数のみ
+const base = { staff_id: 1, year_month: '2026-06', work_days: 10, drink_count: 3 };
+test('monthly bonus empty ok', () => {
+  assert.deepEqual(validateMonthly({ ...base }), []);
+  assert.deepEqual(validateMonthly({ ...base, bonus: '' }), []);
+  assert.deepEqual(validateMonthly({ ...base, bonus: null }), []);
+  assert.deepEqual(validateMonthly({ ...base, bonus: 0 }), []);
+  assert.deepEqual(validateMonthly({ ...base, bonus: 300000 }), []);
+});
+test('monthly bonus invalid', () => {
+  for (const bad of [-1, 1.5, 'abc', '1e3x']) {
+    assert.ok(validateMonthly({ ...base, bonus: bad }).length > 0, `bonus=${bad}`);
+  }
+});

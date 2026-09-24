@@ -38,13 +38,17 @@ function validateAttendance(b) {
   return e;
 }
 
-// 月次データ（出勤日数・ドリンク杯数）の検証
+// 月次データ（出勤日数・ドリンク杯数・賞与）の検証
 function validateMonthly(b) {
   const e = [];
   if (!isNonNegInt(b && b.staff_id)) e.push('スタッフIDが不正です');
   if (!YM_RE.test((b && b.year_month) || '')) e.push('対象年月が不正です (YYYY-MM)');
   if (!isNonNegInt(b && b.work_days) || Number(b.work_days) > 31) e.push('出勤日数は0〜31で入力してください');
   if (!isNonNegInt(b && b.drink_count)) e.push('ドリンク杯数は0以上の整数で入力してください');
+  // 賞与は任意。未指定・空欄は0扱い、値があるなら0以上の整数のみ
+  if (b && b.bonus !== undefined && b.bonus !== null && b.bonus !== '' && !isNonNegInt(b.bonus)) {
+    e.push('賞与は0以上の整数（円）で入力してください');
+  }
   return e;
 }
 

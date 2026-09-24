@@ -76,5 +76,6 @@ function addColumnIfMissing(table, column, definition) {
 }
 addColumnIfMissing('staff', 'daily_rate', 'INTEGER DEFAULT 0');
 addColumnIfMissing('staff', 'drink_back_rate', 'INTEGER DEFAULT 0');
+addColumnIfMissing('monthly_data', 'bonus', 'INTEGER DEFAULT 0'); // 賞与（任意・円）
 
 module.exports = db;
