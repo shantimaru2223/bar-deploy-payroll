@@ -68,4 +68,13 @@ function calcPayroll(staff, attendances, monthly, deductions) {
   };
 }
 
-module.exports = { calcPayroll };
+// 開始・終了（HH:MM）から勤務分数を計算する。終了≦開始は日をまたいだ（翌日終了）として +24時間
+function calcWorkMinutes(startTime, endTime) {
+  const [sh, sm] = startTime.split(':').map(Number);
+  const [eh, em] = endTime.split(':').map(Number);
+  let minutes = (eh * 60 + em) - (sh * 60 + sm);
+  if (minutes <= 0) minutes += 24 * 60;
+  return minutes;
+}
+
+module.exports = { calcPayroll, calcWorkMinutes };

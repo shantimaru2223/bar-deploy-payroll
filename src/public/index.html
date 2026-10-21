@@ -145,6 +145,22 @@
     }
     .payslip-total .amount { font-size: 28px; font-weight: bold; }
 
+    /* 勤怠一覧: 行内編集 */
+    .att-actions { display: flex; gap: 6px; white-space: nowrap; }
+    .att-edit-row td { background: rgba(233, 69, 96, 0.08); }
+    .att-edit-row input { padding: 6px 8px; font-size: 13px; }
+    .att-edit-row input[type="date"] { min-width: 140px; }
+    .att-edit-row input[type="time"] { min-width: 105px; }
+    .overnight-mark { display: inline-block; margin-left: 4px; font-size: 11px; color: #ffb84d; }
+
+    /* 給与明細2ページ目: 勤務日時の詳細 */
+    .payslip-detail table { margin-top: 0; }
+    .payslip-detail th, .payslip-detail td { color: #333; border-bottom: 1px solid #eee; padding: 8px 10px; }
+    .payslip-detail th { color: #666; background: #f6f6f8; border-bottom: 1px solid #ddd; letter-spacing: 0; }
+    .payslip-detail tr:hover td { background: none; }
+    .payslip-detail tfoot td { font-weight: bold; border-top: 2px solid #333; border-bottom: none; }
+    .payslip-detail .overnight-mark { color: #c77700; }
+
     /* メッセージ */
     .empty-msg { text-align: center; color: #888fa8; padding: 30px; font-size: 13px; }
 
@@ -448,8 +464,6 @@
       </div>
       <div id="summaryEmpty" class="empty-msg">対象月を選択してください</div>
 
-      <!-- 一括PDF生成用の隠しコンテナ（画面外で組み立てる） -->
-      <div id="bulkPdfArea" aria-hidden="true" style="position:absolute; left:-9999px; top:0; width:800px;"></div>
     </div>
   </div>
 
@@ -797,22 +811,103 @@
         document.getElementById('sumEstimate').textContent = '¥' + estimate.toLocaleString();
       }
 
-      tbody.innerHTML = rows.map(r => {
-        const h = Math.floor(r.work_minutes / 60);
-        const m = r.work_minutes % 60;
+      attRowsCache = rows;
+      attEditingId = null;
+      renderAttendanceRows();
+    }
+
+    // --- 勤怠一覧の行内編集 ---
+    let attRowsCache = [];   // 表示中の勤怠（編集の元データ）
+    let attEditingId = null; // 編集中の行のID（null＝編集なし）
+
+    // 分 → 「5時間30分」表記
+    function formatMinutes(mins) {
+      const h = Math.floor(mins / 60), m = mins % 60;
+      return `${h}時間${m > 0 ? m + '分' : ''}`;
+    }
+
+    // 一覧を描画（編集中の1行だけ入力欄にする）
+    function renderAttendanceRows() {
+      document.getElementById('attendanceList').innerHTML = attRowsCache.map(r => {
         const wd = getWeekday(r.work_date);
         const wdStyle = getWeekdayClass(r.work_date);
+        if (r.id === attEditingId) {
+          return `
+          <tr class="att-edit-row">
+            <td><input type="date" id="editDate" value="${r.work_date}" aria-label="勤務日" oninput="updateEditPreview()"></td>
+            <td id="editWeekday" style="${wdStyle}">${wd}</td>
+            <td><input type="time" id="editStart" value="${r.start_time}" aria-label="開始時刻" oninput="updateEditPreview()"></td>
+            <td><input type="time" id="editEnd" value="${r.end_time}" aria-label="終了時刻" oninput="updateEditPreview()"></td>
+            <td id="editMinutes" aria-live="polite"></td>
+            <td><div class="att-actions">
+              <button class="btn-small" onclick="saveAttendanceEdit(${r.id})">保存</button>
+              <button class="btn-small btn-secondary" onclick="cancelAttendanceEdit()">取消</button>
+            </div></td>
+          </tr>`;
+        }
         return `
           <tr>
             <td>${r.work_date}</td>
             <td style="${wdStyle}">${wd}</td>
             <td>${r.start_time}</td>
             <td>${r.end_time}</td>
-            <td>${h}時間${m > 0 ? m + '分' : ''}</td>
-            <td><button class="btn-small btn-danger" onclick="deleteAttendance(${r.id})">削除</button></td>
-          </tr>
-        `;
+            <td>${formatMinutes(r.work_minutes)}</td>
+            <td><div class="att-actions">
+              <button class="btn-small btn-secondary" onclick="editAttendance(${r.id})" aria-label="${r.work_date} を編集">編集</button>
+              <button class="btn-small btn-danger" onclick="deleteAttendance(${r.id})" aria-label="${r.work_date} を削除">削除</button>
+            </div></td>
+          </tr>`;
       }).join('');
+      if (attEditingId !== null) updateEditPreview();
+    }
+
+    function editAttendance(id) {
+      attEditingId = id;
+      renderAttendanceRows();
+      document.getElementById('editDate').focus();
+    }
+
+    function cancelAttendanceEdit() {
+      attEditingId = null;
+      renderAttendanceRows();
+    }
+
+    // 編集中の曜日・勤務時間をその場で再計算して表示（日またぎは明示）
+    function updateEditPreview() {
+      const date = document.getElementById('editDate').value;
+      const start = document.getElementById('editStart').value;
+      const end = document.getElementById('editEnd').value;
+      const wdCell = document.getElementById('editWeekday');
+      wdCell.textContent = date ? getWeekday(date) : '';
+      wdCell.style.cssText = date ? getWeekdayClass(date) : '';
+      const out = document.getElementById('editMinutes');
+      if (!start || !end) { out.textContent = '-'; return; }
+      const { mins, overnight } = calcShiftMinutes(start, end);
+      out.innerHTML = formatMinutes(mins) + (overnight ? '<span class="overnight-mark">翌日終了</span>' : '');
+    }
+
+    async function saveAttendanceEdit(id) {
+      const work_date = document.getElementById('editDate').value;
+      const start_time = document.getElementById('editStart').value;
+      const end_time = document.getElementById('editEnd').value;
+      if (!work_date || !start_time || !end_time) { alert('日付・開始・終了をすべて入力してください'); return; }
+
+      // 対象月以外の日付にすると、この一覧から消えて別の月に移るので確認する
+      const month = document.getElementById('attMonth').value;
+      if (!work_date.startsWith(month + '-') &&
+          !confirm(`${work_date} は表示中の月（${month}）以外の日付です。この日付で保存しますか？`)) return;
+
+      const res = await fetch(`/api/attendance/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ work_date, start_time, end_time })
+      });
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        alert(e.error || '更新に失敗しました');
+        return; // 編集状態のまま残して直せるようにする
+      }
+      loadAttendance();
     }
 
     async function deleteAttendance(id) {
@@ -913,7 +1008,7 @@
 
       const res = await fetch(`/api/payroll/${staffId}/${month}`);
       currentPayroll = await res.json();
-      document.getElementById('payslipPreview').innerHTML = buildPayslipHtml(currentPayroll);
+      document.getElementById('payslipPreview').innerHTML = buildPayslipPagesHtml(currentPayroll);
       document.getElementById('pdfBtn').classList.remove('hidden');
     }
 
@@ -1042,6 +1137,47 @@
       `;
     }
 
+    // 明細2ページ目「勤務日時の詳細」。日ごとの勤怠がある人だけ作る（無ければ空文字）
+    function buildWorkDetailHtml(p) {
+      const list = p.attendances || [];
+      if (!list.length) return '';
+      const [year, mon] = p.yearMonth.split('-');
+      const total = list.reduce((sum, a) => sum + a.work_minutes, 0);
+      const rows = list.map(a => {
+        const overnight = a.end_time <= a.start_time; // 終了≦開始＝翌日終了
+        return `
+              <tr>
+                <td>${a.work_date}</td>
+                <td style="${getWeekdayClass(a.work_date)}">${getWeekday(a.work_date)}</td>
+                <td>${a.start_time}</td>
+                <td>${overnight ? '<span class="overnight-mark" style="margin:0 4px 0 0;">翌</span>' : ''}${a.end_time}</td>
+                <td>${formatMinutes(a.work_minutes)}</td>
+              </tr>`;
+      }).join('');
+      return `
+        <div class="payslip payslip-detail">
+          <div class="payslip-header">
+            <h3>勤 務 日 時 詳 細</h3>
+            <div class="shop-name">Bar Deploy</div>
+            <div class="period">${year}年${parseInt(mon)}月分　${escapeHtml(p.staff.name)}</div>
+          </div>
+          <div class="payslip-body">
+            <table>
+              <thead><tr><th scope="col">日付</th><th scope="col">曜日</th><th scope="col">開始</th><th scope="col">終了</th><th scope="col">勤務時間</th></tr></thead>
+              <tbody>${rows}</tbody>
+              <tfoot><tr><td colspan="4">合計（出勤 ${list.length}日）</td><td>${formatMinutes(total)}</td></tr></tfoot>
+            </table>
+          </div>
+        </div>
+      `;
+    }
+
+    // 明細1ページ目＋（あれば）改ページして2ページ目。画面・PDF・全員分PDFで共用
+    function buildPayslipPagesHtml(p) {
+      const detail = buildWorkDetailHtml(p);
+      return buildPayslipHtml(p) + (detail ? '<div class="html2pdf__page-break"></div>' + detail : '');
+    }
+
     // --- PDF出力 ---
     async function downloadPdf() {
       if (!currentPayroll) return;
@@ -1052,14 +1188,15 @@
         await loadScript('/html2pdf.bundle.min.js');
       }
 
-      // 画面の明細プレビューをそのままPDF化
-      const element = document.querySelector('.payslip');
+      // 画面の明細プレビュー（2ページ目を含む）をそのままPDF化
+      const element = document.getElementById('payslipPreview');
       const opt = {
         margin: 10,
         filename: `給与明細_${p.staff.name}_${p.yearMonth}.pdf`,
         image: { type: 'jpeg', quality: 0.98 },
         html2canvas: { scale: 2 },
-        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+        pagebreak: { mode: ['css', 'legacy'] }
       };
       html2pdf().set(opt).from(element).save();
     }
@@ -1170,11 +1307,13 @@
         const parts = [];
         for (const s of staffList) {
           const p = await (await fetch(`/api/payroll/${s.id}/${ym}`)).json();
-          parts.push(buildPayslipHtml(p));
+          parts.push(buildPayslipPagesHtml(p));
         }
 
-        // 画面外コンテナに連結（2人目以降の前にページ区切りを入れる）
-        const area = document.getElementById('bulkPdfArea');
+        // 文書に入れない作業用の箱に連結（2人目以降の前にページ区切りを入れる）
+        // ※ 画面外(left:-9999px)に置くと html2pdf がその位置指定ごと複製し、白紙1ページになるため
+        const area = document.createElement('div');
+        area.style.width = '800px';
         area.innerHTML = parts
           .map((html, i) => (i > 0 ? '<div class="html2pdf__page-break"></div>' : '') + html)
           .join('');
@@ -1188,7 +1327,6 @@
           pagebreak: { mode: ['css', 'legacy'] }
         };
         await html2pdf().set(opt).from(area).save();
-        area.innerHTML = '';
       } finally {
         btn.disabled = false;
         btn.textContent = prevText;

@@ -98,3 +98,13 @@ test('bonus missing or null = 0', () => {
     assert.equal(r.netPay, 189790);
   }
 });
+
+// 勤務分数の計算（登録・更新で共用）。終了≦開始は翌日終了として +24時間
+const { calcWorkMinutes } = require('../src/payroll');
+test('calcWorkMinutes', () => {
+  assert.equal(calcWorkMinutes('18:00', '23:30'), 330);  // 同日
+  assert.equal(calcWorkMinutes('22:00', '03:00'), 300);  // 日またぎ
+  assert.equal(calcWorkMinutes('22:00', '05:00'), 420);  // 日またぎ
+  assert.equal(calcWorkMinutes('00:00', '23:59'), 1439); // 境界: 最長の同日勤務
+  assert.equal(calcWorkMinutes('10:00', '10:00'), 1440); // 境界: 同時刻は24時間扱い（従来ロジックと同じ）
+});

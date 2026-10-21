@@ -1,7 +1,7 @@
 const express = require('express');
 const path = require('path');
 const db = require('./db');
-const { calcPayroll } = require('./payroll');
+const { calcPayroll, calcWorkMinutes } = require('./payroll');
 const v = require('./validation');
 
 const app = express();
@@ -85,20 +85,30 @@ app.post('/api/attendance', (req, res) => {
   if (errs.length) return res.status(400).json({ error: errs.join(' / ') });
   const { staff_id, work_date, start_time, end_time } = req.body;
 
-  // 勤務時間を分単位で計算（日またぎ対応）
-  const [sh, sm] = start_time.split(':').map(Number);
-  const [eh, em] = end_time.split(':').map(Number);
-  let work_minutes = (eh * 60 + em) - (sh * 60 + sm);
-  if (work_minutes <= 0) {
-    // 日をまたぐ場合（例: 19:00〜翌3:00）→ +24時間分を加算
-    work_minutes += 24 * 60;
-  }
+  // 勤務時間を分単位で計算（日またぎ対応: 例 19:00〜翌3:00 は +24時間）
+  const work_minutes = calcWorkMinutes(start_time, end_time);
 
   const stmt = db.prepare(
     'INSERT INTO attendance (staff_id, work_date, start_time, end_time, work_minutes) VALUES (?, ?, ?, ?, ?)'
   );
   const result = stmt.run(staff_id, work_date, start_time, end_time, work_minutes);
   res.json({ id: result.lastInsertRowid });
+});
+
+// 勤怠データを更新（日付・開始・終了を直す。勤務時間は再計算）
+app.put('/api/attendance/:id', (req, res) => {
+  const current = db.prepare('SELECT staff_id FROM attendance WHERE id = ?').get(req.params.id);
+  if (!current) return res.status(404).json({ error: '勤怠データが見つかりません' });
+  // スタッフは変えない（検証は登録と同じものを使う）
+  const body = { ...req.body, staff_id: current.staff_id };
+  const errs = v.validateAttendance(body);
+  if (errs.length) return res.status(400).json({ error: errs.join(' / ') });
+  const { work_date, start_time, end_time } = body;
+  const work_minutes = calcWorkMinutes(start_time, end_time);
+  db.prepare(
+    'UPDATE attendance SET work_date = ?, start_time = ?, end_time = ?, work_minutes = ? WHERE id = ?'
+  ).run(work_date, start_time, end_time, work_minutes, req.params.id);
+  res.json({ success: true, work_minutes });
 });
 
 // 勤怠データを削除
@@ -162,6 +172,8 @@ app.get('/api/payroll/:staffId/:yearMonth', (req, res) => {
     staff,
     yearMonth,
     drinkBackRate: staff.drink_back_rate,
+    // 日ごとの勤怠（明細2ページ目「勤務日時の詳細」用）
+    attendances: attendances.map(({ work_date, start_time, end_time, work_minutes }) => ({ work_date, start_time, end_time, work_minutes })),
     ...result
   });
 });
