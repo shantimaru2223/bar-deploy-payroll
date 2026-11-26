@@ -294,3 +294,8 @@
   - ローカルDBバックアップ: ~/.claude/backups/bar-deploy-payroll-data.db.pre-halfday.bak（テストデータは削除済み）
   - 【既存不具合を発見・未対応】月次データがあるスタッフを削除すると FOREIGN KEY エラー（500・HTMLのエラー画面）
 - 次にやること: コミット → 本番反映（要確認）。スタッフ削除の不具合対応
+
+## 2026-11-26 本番反映（0.5日単位・半休回数・備考欄）
+- `c85c8a2` を `git push origin payroll-brushup:master`（FF）→ Render自動デプロイ（約40秒）
+- 本番確認（読み取りのみ・書き込みなし）: 画面に半休回数・備考欄あり／Turso に half_days・note 列が追加され、既存データは half_days=0・note='' で読める／月次集計(2026-10, 6人)が正常
+- 次にやること: スタッフ削除のFOREIGN KEYエラー対応
