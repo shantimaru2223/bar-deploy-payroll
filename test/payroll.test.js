@@ -108,3 +108,66 @@ test('calcWorkMinutes', () => {
   assert.equal(calcWorkMinutes('00:00', '23:59'), 1439); // 境界: 最長の同日勤務
   assert.equal(calcWorkMinutes('10:00', '10:00'), 1440); // 境界: 同時刻は24時間扱い（従来ロジックと同じ）
 });
+
+// --- 0.5日単位（半休）---
+// 日給: 日当9999×2.5日（全日2回＋半休1回）→ 24997.5円は切り捨て。交通費は半休も往復1回
+test('daily half day: floor and transport counts half day as a round trip', () => {
+  const staff = { pay_type: 'daily', hourly_rate: 0, monthly_salary: 0, daily_rate: 9999, drink_back_rate: 0, transport_fee: 1000 };
+  const r = calcPayroll(staff, [], { work_days: 2.5, half_days: 1, drink_count: 0 });
+  assert.equal(r.workDays, 2.5);
+  assert.equal(r.halfDays, 1);
+  assert.equal(r.commuteDays, 3);        // 全日2回＋半休1回
+  assert.equal(r.basePay, 24997);        // floor(9999×2.5)
+  assert.equal(r.transportFee, 6000);    // 1000×2×3回
+  assert.ok(Number.isInteger(r.withholdingTax));
+  assert.ok(Number.isInteger(r.netPay));
+});
+
+// 半休2回で合計整数日（全日2回＋半休2回＝3日）→ 交通費は4回分
+test('daily two half days make integer days but 4 commutes', () => {
+  const staff = { pay_type: 'daily', hourly_rate: 0, monthly_salary: 0, daily_rate: 10000, drink_back_rate: 0, transport_fee: 500 };
+  const r = calcPayroll(staff, [], { work_days: 3, half_days: 2, drink_count: 0 });
+  assert.equal(r.basePay, 30000);
+  assert.equal(r.commuteDays, 4);
+  assert.equal(r.transportFee, 4000);    // 500×2×4
+});
+
+// 境界: 半休1回のみ（0.5日）
+test('daily only one half day', () => {
+  const staff = { pay_type: 'daily', hourly_rate: 0, monthly_salary: 0, daily_rate: 10001, drink_back_rate: 0, transport_fee: 300 };
+  const r = calcPayroll(staff, [], { work_days: 0.5, half_days: 1, drink_count: 0 });
+  assert.equal(r.basePay, 5000);         // floor(5000.5)
+  assert.equal(r.transportFee, 600);     // 300×2×1回
+});
+
+// 半休回数なし（旧データ）→ 出勤回数＝日数で従来通り
+test('half_days missing = 0 (backward compatible)', () => {
+  const staff = { pay_type: 'daily', daily_rate: 10000, drink_back_rate: 0, transport_fee: 5000, hourly_rate: 0, monthly_salary: 0 };
+  const r = calcPayroll(staff, [], { work_days: 10, drink_count: 0 });
+  assert.equal(r.halfDays, 0);
+  assert.equal(r.commuteDays, 10);
+  assert.equal(r.netPay, 189790);
+});
+
+// 月給: 基本給は固定、交通費だけ半休を往復1回で数える
+test('monthly half day transport', () => {
+  const staff = { pay_type: 'monthly', hourly_rate: 0, monthly_salary: 200000, daily_rate: 0, drink_back_rate: 0, transport_fee: 300 };
+  const r = calcPayroll(staff, [], { work_days: 19.5, half_days: 1, drink_count: 0 });
+  assert.equal(r.basePay, 200000);
+  assert.equal(r.transportFee, 12000);   // 300×2×20回
+});
+
+// 時給は勤怠の登録日数のまま（半休の入力は無視）
+test('hourly ignores half_days', () => {
+  const staff = { pay_type: 'hourly', hourly_rate: 1200, monthly_salary: 0, daily_rate: 0, drink_back_rate: 0, transport_fee: 250 };
+  const r = calcPayroll(staff, [{ work_minutes: 60 }], { work_days: 0, half_days: 3, drink_count: 0 });
+  assert.equal(r.commuteDays, 1);
+  assert.equal(r.transportFee, 500);
+});
+
+// 備考は計算に影響せずそのまま返す
+test('note passthrough', () => {
+  const staff = { pay_type: 'daily', daily_rate: 10000, drink_back_rate: 0, transport_fee: 0, hourly_rate: 0, monthly_salary: 0 };
+  assert.equal(calcPayroll(staff, [], { work_days: 1, drink_count: 0, note: '11/3 半休' }).note, '11/3 半休');
+  assert.equal(calcPayroll(staff, [], { work_days: 1, drink_count: 0 }).note, '');
+});

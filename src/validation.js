@@ -38,16 +38,32 @@ function validateAttendance(b) {
   return e;
 }
 
-// 月次データ（出勤日数・ドリンク杯数・賞与）の検証
+// 月次データ（出勤日数・半休回数・ドリンク杯数・賞与・備考）の検証
 function validateMonthly(b) {
   const e = [];
   if (!isNonNegInt(b && b.staff_id)) e.push('スタッフIDが不正です');
   if (!YM_RE.test((b && b.year_month) || '')) e.push('対象年月が不正です (YYYY-MM)');
-  if (!isNonNegInt(b && b.work_days) || Number(b.work_days) > 31) e.push('出勤日数は0〜31で入力してください');
+  // 出勤日数は0.5日単位（半休）で0〜31
+  const days = Number(b && b.work_days);
+  const daysOk = b && b.work_days !== '' && b.work_days !== null && Number.isInteger(days * 2) && days >= 0 && days <= 31;
+  if (!daysOk) e.push('出勤日数は0〜31の0.5日単位で入力してください');
+  // うち半休の回数（任意）。空欄は0。半休の数と「.5」の有無が合っていること（例: 2.5日なら半休は奇数回）
+  const halfRaw = b && b.half_days;
+  const half = (halfRaw === undefined || halfRaw === null || halfRaw === '') ? 0 : halfRaw;
+  if (!isNonNegInt(half)) {
+    e.push('半休の回数は0以上の整数で入力してください');
+  } else if (daysOk && (Number(half) > days * 2 || (days * 2 - Number(half)) % 2 !== 0)) {
+    e.push('半休の回数と出勤日数が合いません（例: 2.5日なら半休は1回・3回…）');
+  }
   if (!isNonNegInt(b && b.drink_count)) e.push('ドリンク杯数は0以上の整数で入力してください');
   // 賞与は任意。未指定・空欄は0扱い、値があるなら0以上の整数のみ
   if (b && b.bonus !== undefined && b.bonus !== null && b.bonus !== '' && !isNonNegInt(b.bonus)) {
     e.push('賞与は0以上の整数（円）で入力してください');
+  }
+  // 備考は任意。文字列で500文字まで
+  const note = b && b.note;
+  if (note !== undefined && note !== null && (typeof note !== 'string' || note.length > 500)) {
+    e.push('備考は500文字以内で入力してください');
   }
   return e;
 }

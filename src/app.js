@@ -121,22 +121,24 @@ app.delete('/api/attendance/:id', (req, res) => {
 app.get('/api/monthly/:staffId/:yearMonth', (req, res) => {
   const { staffId, yearMonth } = req.params;
   const row = db.prepare(
-    'SELECT work_days, drink_count, bonus FROM monthly_data WHERE staff_id = ? AND year_month = ?'
+    'SELECT work_days, half_days, drink_count, bonus, note FROM monthly_data WHERE staff_id = ? AND year_month = ?'
   ).get(staffId, yearMonth);
-  res.json(row || { work_days: 0, drink_count: 0, bonus: 0 });
+  res.json(row || { work_days: 0, half_days: 0, drink_count: 0, bonus: 0, note: '' });
 });
 
 // 月次データを保存（スタッフ×月で1件にまとめる＝あれば上書き）
 app.post('/api/monthly', (req, res) => {
   const errs = v.validateMonthly(req.body);
   if (errs.length) return res.status(400).json({ error: errs.join(' / ') });
-  const { staff_id, year_month, work_days, drink_count, bonus } = req.body;
+  const { staff_id, year_month, work_days, half_days, drink_count, bonus, note } = req.body;
   db.prepare(`
-    INSERT INTO monthly_data (staff_id, year_month, work_days, drink_count, bonus)
-    VALUES (?, ?, ?, ?, ?)
+    INSERT INTO monthly_data (staff_id, year_month, work_days, half_days, drink_count, bonus, note)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(staff_id, year_month)
-    DO UPDATE SET work_days = excluded.work_days, drink_count = excluded.drink_count, bonus = excluded.bonus
-  `).run(staff_id, year_month, work_days || 0, drink_count || 0, Number(bonus) || 0);
+    DO UPDATE SET work_days = excluded.work_days, half_days = excluded.half_days, drink_count = excluded.drink_count,
+                  bonus = excluded.bonus, note = excluded.note
+  `).run(staff_id, year_month, Number(work_days) || 0, Number(half_days) || 0, drink_count || 0, Number(bonus) || 0,
+    typeof note === 'string' ? note.trim() : '');
   res.json({ success: true });
 });
 
@@ -157,7 +159,7 @@ app.get('/api/payroll/:staffId/:yearMonth', (req, res) => {
 
   // 月次データ（日給の出勤日数・ドリンク杯数）を取得。無ければ0
   const monthly = db.prepare(
-    'SELECT work_days, drink_count, bonus FROM monthly_data WHERE staff_id = ? AND year_month = ?'
+    'SELECT work_days, half_days, drink_count, bonus, note FROM monthly_data WHERE staff_id = ? AND year_month = ?'
   ).get(staffId, yearMonth) || { work_days: 0, drink_count: 0 };
 
   // 控除（住民税など）を取得
@@ -193,7 +195,7 @@ app.get('/api/summary/:yearMonth', (req, res) => {
       "SELECT * FROM attendance WHERE staff_id = ? AND work_date LIKE ? ORDER BY work_date"
     ).all(staff.id, `${yearMonth}%`);
     const monthly = db.prepare(
-      'SELECT work_days, drink_count, bonus FROM monthly_data WHERE staff_id = ? AND year_month = ?'
+      'SELECT work_days, half_days, drink_count, bonus, note FROM monthly_data WHERE staff_id = ? AND year_month = ?'
     ).get(staff.id, yearMonth) || { work_days: 0, drink_count: 0 };
     const deductions = db.prepare(
       'SELECT name, amount FROM deductions WHERE staff_id = ? AND year_month = ? ORDER BY id'
@@ -231,7 +233,7 @@ app.get('/api/summary/:yearMonth', (req, res) => {
 });
 
 // 月次データの前月コピー: from(YYYY-MM) の出勤日数・ドリンク杯数を to へ複製
-// 既に to に入力があるスタッフは上書きしない（非破壊）。賞与は毎月のものではないので引き継がない（0のまま）
+// 既に to に入力があるスタッフは上書きしない（非破壊）。賞与・備考は毎月のものではないので引き継がない（空のまま）
 app.post('/api/monthly/copy', (req, res) => {
   const { from, to } = req.body || {};
   if (!/^\d{4}-\d{2}$/.test(from || '') || !/^\d{4}-\d{2}$/.test(to || '')) {
@@ -242,18 +244,18 @@ app.post('/api/monthly/copy', (req, res) => {
   }
 
   const src = db.prepare(
-    'SELECT staff_id, work_days, drink_count FROM monthly_data WHERE year_month = ?'
+    'SELECT staff_id, work_days, half_days, drink_count FROM monthly_data WHERE year_month = ?'
   ).all(from);
   const existsStmt = db.prepare('SELECT 1 FROM monthly_data WHERE staff_id = ? AND year_month = ?');
   const insertStmt = db.prepare(
-    'INSERT INTO monthly_data (staff_id, year_month, work_days, drink_count) VALUES (?, ?, ?, ?)'
+    'INSERT INTO monthly_data (staff_id, year_month, work_days, half_days, drink_count) VALUES (?, ?, ?, ?, ?)'
   );
 
   let copied = 0, skipped = 0;
   // ※ libsqlのリモート(Turso)では db.transaction() が使えないため個別に実行する（非破壊＝既存スキップは維持）
   for (const row of src) {
     if (existsStmt.get(row.staff_id, to)) { skipped++; continue; } // 既存は触らない
-    insertStmt.run(row.staff_id, to, row.work_days, row.drink_count);
+    insertStmt.run(row.staff_id, to, row.work_days, row.half_days || 0, row.drink_count);
     copied++;
   }
 

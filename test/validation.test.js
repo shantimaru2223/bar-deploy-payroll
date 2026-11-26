@@ -36,3 +36,27 @@ test('monthly bonus invalid', () => {
     assert.ok(validateMonthly({ ...base, bonus: bad }).length > 0, `bonus=${bad}`);
   }
 });
+
+// 出勤日数: 0.5刻み・0〜31。半休回数: 0以上の整数で、日数と矛盾しないこと
+test('monthly half-day ok', () => {
+  for (const [d, h] of [[0.5, 1], [2.5, 1], [3, 2], ['2.5', '1'], [31, 0], [0, 0], [10, undefined], [10, '']]) {
+    assert.deepEqual(validateMonthly({ ...base, work_days: d, half_days: h }), [], `days=${d} half=${h}`);
+  }
+});
+test('monthly days invalid step/range', () => {
+  for (const d of [0.3, 1.25, -0.5, 31.5, 'abc', '']) {
+    assert.ok(validateMonthly({ ...base, work_days: d }).length > 0, `days=${d}`);
+  }
+});
+test('monthly half_days inconsistent', () => {
+  for (const [d, h] of [[2.5, 0], [3, 1], [1, 3], [2, -2], [2, 1.5], [2.5, 'x']]) {
+    assert.ok(validateMonthly({ ...base, work_days: d, half_days: h }).length > 0, `days=${d} half=${h}`);
+  }
+});
+test('monthly note', () => {
+  assert.deepEqual(validateMonthly({ ...base, note: '11/3 半休（通院）' }), []);
+  assert.deepEqual(validateMonthly({ ...base, note: '' }), []);
+  assert.deepEqual(validateMonthly({ ...base, note: 'あ'.repeat(500) }), []);
+  assert.ok(validateMonthly({ ...base, note: 'あ'.repeat(501) }).length > 0);
+  assert.ok(validateMonthly({ ...base, note: 123 }).length > 0);
+});

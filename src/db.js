@@ -77,5 +77,8 @@ function addColumnIfMissing(table, column, definition) {
 addColumnIfMissing('staff', 'daily_rate', 'INTEGER DEFAULT 0');
 addColumnIfMissing('staff', 'drink_back_rate', 'INTEGER DEFAULT 0');
 addColumnIfMissing('monthly_data', 'bonus', 'INTEGER DEFAULT 0'); // 賞与（任意・円）
+addColumnIfMissing('monthly_data', 'half_days', 'INTEGER DEFAULT 0'); // うち半休の回数（交通費の計算用）
+addColumnIfMissing('monthly_data', 'note', "TEXT DEFAULT ''");       // 備考（任意・明細に表示）
+// ※ work_days は INTEGER 列だが、SQLite は 2.5 のような小数もそのまま保存できるので列の作り直しは不要
 
 module.exports = db;
