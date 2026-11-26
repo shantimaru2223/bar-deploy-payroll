@@ -292,6 +292,9 @@
       </div>
 
       <h2>スタッフ一覧</h2>
+      <label style="display:inline-flex;align-items:center;gap:6px;margin-bottom:8px;width:auto;">
+        <input type="checkbox" id="showRetired" onchange="loadStaff()" style="width:auto;"> 退職者も表示
+      </label>
       <div class="table-wrap">
         <table>
           <thead><tr><th scope="col">名前</th><th scope="col">タイプ</th><th scope="col">給与</th><th scope="col">ドリンク単価</th><th scope="col">交通費（片道）</th><th scope="col"><span class="sr-only">操作</span></th></tr></thead>
@@ -502,7 +505,8 @@
 
     // --- スタッフ管理 ---
     async function loadStaff() {
-      const res = await fetch('/api/staff');
+      const showRetired = document.getElementById('showRetired').checked;
+      const res = await fetch(showRetired ? '/api/staff?all=1' : '/api/staff');
       const staff = await res.json();
       const tbody = document.getElementById('staffList');
       const empty = document.getElementById('staffEmpty');
@@ -521,15 +525,17 @@
         else pay = s.monthly_salary.toLocaleString() + '円/月';
         const drink = (s.drink_back_rate || 0) > 0 ? s.drink_back_rate.toLocaleString() + '円/杯' : '-';
         return `
-        <tr>
-          <td><strong>${s.name}</strong></td>
+        <tr${s.retired ? ' style="opacity:0.6;"' : ''}>
+          <td><strong>${escapeHtml(s.name)}</strong>${s.retired ? ' <span style="font-size:11px;color:#aaa;">（退職）</span>' : ''}</td>
           <td>${PAY_TYPE_LABEL[s.pay_type] || s.pay_type}</td>
           <td>${pay}</td>
           <td>${drink}</td>
           <td>${s.transport_fee.toLocaleString()}円</td>
           <td>
             <button class="btn-small btn-secondary" onclick="editStaff(${s.id})">編集</button>
-            <button class="btn-small btn-danger" onclick="deleteStaff(${s.id})">削除</button>
+            ${s.retired
+              ? `<button class="btn-small btn-secondary" onclick="restoreStaff(${s.id})">復帰</button>`
+              : `<button class="btn-small btn-danger" onclick="deleteStaff(${s.id})">削除</button>`}
           </td>
         </tr>
       `;
@@ -621,7 +627,7 @@
     // 編集モードに切り替え、既存値を読み込む
     async function editStaff(id) {
       clearStaffMsg();
-      const res = await fetch('/api/staff');
+      const res = await fetch('/api/staff?all=1');
       const staff = await res.json();
       const s = staff.find(x => x.id === id);
       if (!s) return;
@@ -653,20 +659,33 @@
       document.getElementById('staffError').classList.add('hidden');
     }
 
+    // 記録（勤怠・月次データ・控除）がある人は退職扱いになり、過去の明細は残る
     async function deleteStaff(id) {
-      if (!confirm('このスタッフを削除しますか？')) return;
-      await fetch(`/api/staff/${id}`, { method: 'DELETE' });
+      if (!confirm('このスタッフを削除しますか？\n※ 勤怠などの記録がある場合は「退職扱い」になり、過去の明細は残ります（あとで復帰できます）')) return;
+      const res = await fetch(`/api/staff/${id}`, { method: 'DELETE' });
+      const r = await res.json().catch(() => ({}));
+      if (!res.ok) { alert(r.error || '削除に失敗しました'); return; }
+      if (r.retired) alert('記録があるため退職扱いにしました。「退職者も表示」から確認・復帰できます');
       loadStaff();
+      loadStaffSelect();
+    }
+
+    async function restoreStaff(id) {
+      const res = await fetch(`/api/staff/${id}/restore`, { method: 'POST' });
+      if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.error || '復帰に失敗しました'); return; }
+      loadStaff();
+      loadStaffSelect();
     }
 
     // --- スタッフ選択肢 ---
     async function loadStaffSelect() {
-      const res = await fetch('/api/staff');
+      // 勤怠入力は在籍者だけ。給与明細は過去分を出し直せるよう退職者も「（退職）」付きで出す
+      const res = await fetch('/api/staff?all=1');
       const staff = await res.json();
       staffCache = staff;
-      const options = staff.map(s => `<option value="${s.id}">${s.name}</option>`).join('');
-      document.getElementById('attStaff').innerHTML = options;
-      document.getElementById('payStaff').innerHTML = options;
+      const opt = s => `<option value="${s.id}">${escapeHtml(s.name)}${s.retired ? '（退職）' : ''}</option>`;
+      document.getElementById('attStaff').innerHTML = staff.filter(s => !s.retired).map(opt).join('');
+      document.getElementById('payStaff').innerHTML = staff.map(opt).join('');
       loadAttendance();
     }
 
@@ -1323,7 +1342,9 @@
       const ym = document.getElementById('summaryMonth').value;
       if (!ym) { alert('対象月を選択してください'); return; }
 
-      const staffList = await (await fetch('/api/staff')).json();
+      // 対象は月次集計と同じ顔ぶれ（在籍者＋その月に記録がある退職者）
+      const sum = await (await fetch(`/api/summary/${ym}`)).json();
+      const staffList = (sum.rows || []).map(r => ({ id: r.staffId }));
       if (!staffList.length) { alert('スタッフが登録されていません'); return; }
 
       const btn = document.getElementById('allPdfBtn');

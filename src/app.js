@@ -17,9 +17,12 @@ app.use(express.static(path.join(__dirname, 'public')));
 // --- APIルート ---
 
 // スタッフ一覧を取得
+// ?all=1 なら退職者も含める（スタッフ一覧の「退職者も表示」・給与明細の選択肢で使う）
 app.get('/api/staff', (req, res) => {
-  const staff = db.prepare('SELECT * FROM staff ORDER BY id').all();
-  res.json(staff);
+  const sql = req.query.all === '1'
+    ? 'SELECT * FROM staff ORDER BY id'
+    : 'SELECT * FROM staff WHERE COALESCE(retired, 0) = 0 ORDER BY id';
+  res.json(db.prepare(sql).all());
 });
 
 // スタッフを登録
@@ -65,8 +68,28 @@ app.put('/api/staff/:id', (req, res) => {
 });
 
 // スタッフを削除
+// スタッフを削除。勤怠・月次データ・控除の記録があれば消さずに「退職扱い」にする
+// （給与の記録は保存が必要なため。記録が無い人だけ本当に削除する）
 app.delete('/api/staff/:id', (req, res) => {
-  db.prepare('DELETE FROM staff WHERE id = ?').run(req.params.id);
+  const id = req.params.id;
+  if (!db.prepare('SELECT 1 FROM staff WHERE id = ?').get(id)) {
+    return res.status(404).json({ error: 'スタッフが見つかりません' });
+  }
+  const hasRecords = ['attendance', 'monthly_data', 'deductions'].some(
+    (t) => db.prepare(`SELECT 1 FROM ${t} WHERE staff_id = ? LIMIT 1`).get(id)
+  );
+  if (hasRecords) {
+    db.prepare('UPDATE staff SET retired = 1 WHERE id = ?').run(id);
+    return res.json({ success: true, retired: true });
+  }
+  db.prepare('DELETE FROM staff WHERE id = ?').run(id);
+  res.json({ success: true, retired: false });
+});
+
+// 退職扱いのスタッフを復帰させる
+app.post('/api/staff/:id/restore', (req, res) => {
+  const r = db.prepare('UPDATE staff SET retired = 0 WHERE id = ?').run(req.params.id);
+  if (!r.changes) return res.status(404).json({ error: 'スタッフが見つかりません' });
   res.json({ success: true });
 });
 
@@ -187,7 +210,15 @@ app.get('/api/summary/:yearMonth', (req, res) => {
     return res.status(400).json({ error: '対象年月が不正です (YYYY-MM)' });
   }
 
-  const staffList = db.prepare('SELECT * FROM staff ORDER BY id').all();
+  // 在籍中のスタッフ全員 ＋ 退職扱いでもその月に記録がある人（辞めた月の給与を漏らさない）
+  const staffList = db.prepare(`
+    SELECT * FROM staff s
+    WHERE COALESCE(s.retired, 0) = 0
+       OR EXISTS (SELECT 1 FROM attendance a WHERE a.staff_id = s.id AND a.work_date LIKE ?)
+       OR EXISTS (SELECT 1 FROM monthly_data m WHERE m.staff_id = s.id AND m.year_month = ?)
+       OR EXISTS (SELECT 1 FROM deductions d WHERE d.staff_id = s.id AND d.year_month = ?)
+    ORDER BY s.id
+  `).all(`${yearMonth}%`, yearMonth, yearMonth);
 
   // 各スタッフについて、給与計算API と同じ手順で計算する（ロジックは calcPayroll に集約）
   const rows = staffList.map((staff) => {
